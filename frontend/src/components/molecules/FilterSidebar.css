@@ -1,0 +1,42 @@
+.filter-sidebar {
+  width: 15.5rem;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  min-height: 22rem;
+}
+
+.filter-sidebar h4 {
+  margin-bottom: 1rem;
+  color: #f8fafc;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.filter-sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.filter-option input {
+  accent-color: #3b82f6;
+}
+
+@media (max-width: 900px) {
+  .filter-sidebar {
+    width: 100%;
+    min-height: unset;
+  }
+}

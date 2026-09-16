@@ -1,0 +1,21 @@
+export type Product = {
+  id: string;
+  asin: string | null;
+  product_title: string;
+  product_rating: number | null;
+  total_reviews: number | null;
+  purchased_last_month: number | null;
+  discounted_price: number | null;
+  original_price: number | null;
+  is_best_seller: string | null;
+  is_sponsored: boolean;
+  has_coupon: string | null;
+  buy_box_availability: string | null;
+  delivery_date: string | null;
+  sustainability_tags: string | null;
+  product_image_url: string;
+  product_page_url: string;
+  data_collected_at: string | null;
+  product_category: string;
+  discount_percentage: number | null;
+};

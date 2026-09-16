@@ -1,0 +1,56 @@
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+frontend/.pnpm-store/
+
+# Python / Backend
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.coverage
+backend/.coverage.*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Database / local data
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated / temporary
+coverage/
+.tmp/
+tmp/
+*.tmp
+
+# Python packaging / build
+backend/build/
+backend/dist/
+backend/*.egg-info/
+
+# Local project artifacts
+frontend/public/data/

@@ -11,8 +11,9 @@ export default function ProductDetailPage() {
   useEffect(() => {
     async function loadProduct() {
       try {
-        const response = await fetch('/data/products.json');
-        const products = (await response.json()) as Product[];
+        const response = await fetch('http://localhost:8000/api/productos');
+        const payload = (await response.json()) as { productos?: Product[] };
+        const products = payload.productos ?? [];
         const found = products.find((item) => item.id === id) ?? products[0] ?? null;
         setProduct(found);
       } catch (error) {

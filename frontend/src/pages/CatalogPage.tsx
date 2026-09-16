@@ -14,9 +14,9 @@ export default function CatalogPage() {
   useEffect(() => {
     async function loadProducts() {
       try {
-        const response = await fetch('/data/products.json');
-        const data = (await response.json()) as Product[];
-        setProducts(data);
+        const response = await fetch('http://localhost:8000/api/productos');
+        const payload = (await response.json()) as { productos?: Product[] };
+        setProducts(payload.productos ?? []);
       } catch (error) {
         console.error('Error al cargar productos:', error);
       } finally {

@@ -107,19 +107,7 @@ export default function DetalleProducto() {
           </div>
 
           <div style={{ display: 'flex', gap: '15px' }}>
-            <Link to="/carrito" style={{ 
-              flex: 1, 
-              textAlign: 'center', 
-              padding: '12px', 
-              border: '1px solid #3b82f6', 
-              borderRadius: '8px', 
-              color: '#38bdf8', 
-              background: 'transparent', 
-              fontWeight: 'bold' 
-            }}>
-              Agregar al carrito
-            </Link>
-            <Link to="/carrito" style={{ 
+            <Link to="/admin/dashboard" style={{ 
               flex: 1, 
               textAlign: 'center', 
               padding: '12px', 
@@ -129,7 +117,7 @@ export default function DetalleProducto() {
               color: '#ffffff', 
               fontWeight: 'bold' 
             }}>
-              Comprar ahora
+              Ver métricas
             </Link>
           </div>
         </div>

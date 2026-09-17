@@ -52,7 +52,6 @@ def obtener_productos() -> dict[str, Any]:
             LEFT JOIN product_images i ON i.product_id = p.id AND i.is_primary = TRUE
             LEFT JOIN product_observations o ON o.product_id = p.id
             ORDER BY p.id DESC
-            LIMIT 20
             """
         )
         rows = cursor.fetchall()

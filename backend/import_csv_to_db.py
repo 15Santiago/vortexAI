@@ -63,6 +63,40 @@ def _make_product_key(title: str, category: str, url: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _normalize_category_name(category_name: str | None, title: str | None) -> str:
+    category = (category_name or "General").strip() or "General"
+    title_text = (title or "").lower()
+
+    battery_keywords = (
+        "battery",
+        "batteries",
+        "power bank",
+        "alkaline battery",
+        "lithium battery",
+        "rechargeable battery",
+        "aa battery",
+        "aaa battery",
+        "9v battery",
+        "duracell",
+        "energizer",
+    )
+    charger_keywords = (
+        "charger",
+        "charging cable",
+        "usb-c charger",
+        "usb c charger",
+        "power adapter",
+        "adapter",
+        "cable",
+    )
+
+    if any(keyword in title_text for keyword in battery_keywords):
+        return "Power & Batteries"
+    if any(keyword in title_text for keyword in charger_keywords):
+        return "Chargers & Cables"
+    return category
+
+
 def _split_sql_statements(sql: str) -> list[str]:
     statements: list[str] = []
     buffer: list[str] = []
@@ -167,7 +201,10 @@ def import_products_from_csv(csv_path: str | None = None) -> dict[str, Any]:
             reader = csv.DictReader(file)
             for row in reader:
                 title = _clean(row.get("product_title")) or "Sin título"
-                category_name = _clean(row.get("product_category")) or "General"
+                category_name = _normalize_category_name(
+                    _clean(row.get("product_category")) or "General",
+                    title,
+                )
                 product_url = _clean(row.get("product_page_url")) or ""
                 image_url = _clean(row.get("product_image_url")) or ""
                 collected_at_raw = _parse_datetime(row.get("data_collected_at"))

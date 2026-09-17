@@ -75,11 +75,8 @@ export default function ProductDetailPage() {
           </div>
 
           <div className="product-detail__actions">
-            <Link to="/carrito" className="product-detail__button product-detail__button--secondary">
-              Agregar al carrito
-            </Link>
-            <Link to="/carrito" className="product-detail__button product-detail__button--primary">
-              Comprar ahora
+            <Link to="/admin/dashboard" className="product-detail__button product-detail__button--primary">
+              Ver métricas
             </Link>
           </div>
         </div>

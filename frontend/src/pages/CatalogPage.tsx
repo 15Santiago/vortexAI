@@ -5,6 +5,25 @@ import FilterSidebar from '../components/molecules/FilterSidebar';
 import type { Product } from '../types/product';
 import './CatalogPage.css';
 
+function looksLikeBatteryProduct(title: string) {
+  const normalized = title.toLowerCase();
+  const batteryKeywords = [
+    'battery',
+    'batteries',
+    'power bank',
+    'aa battery',
+    'aaa battery',
+    '9v battery',
+    'alkaline',
+    'lithium battery',
+    'rechargeable',
+    'duracell',
+    'energizer',
+  ];
+
+  return batteryKeywords.some((keyword) => normalized.includes(keyword));
+}
+
 export default function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
@@ -36,13 +55,20 @@ export default function CatalogPage() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return products.filter((product) => {
-      const matchesCategory = selectedCategory === 'all' || product.product_category === selectedCategory;
+      const categoryMatches =
+        selectedCategory === 'all' || product.product_category === selectedCategory;
+
+      const isBatteryHiddenFromPhones =
+        selectedCategory === 'Phones' &&
+        product.product_category === 'Phones' &&
+        looksLikeBatteryProduct(product.product_title);
+
       const matchesSearch =
         normalizedSearch.length === 0 ||
         product.product_title.toLowerCase().includes(normalizedSearch) ||
         product.product_category.toLowerCase().includes(normalizedSearch);
 
-      return matchesCategory && matchesSearch;
+      return categoryMatches && !isBatteryHiddenFromPhones && matchesSearch;
     });
   }, [products, search, selectedCategory]);
 

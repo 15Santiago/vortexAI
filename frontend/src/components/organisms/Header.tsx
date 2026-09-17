@@ -7,7 +7,7 @@ export default function Header() {
     <header className="header">
       <div className="header__brand">
         <Logo />
-        <span className="header__subtitle">Comercio electrónico inteligente</span>
+        <span className="header__subtitle">Analítica de comercio electrónico</span>
       </div>
 
       <nav className="header__nav" aria-label="Navegación principal">
@@ -17,13 +17,9 @@ export default function Header() {
         <NavLink to="/catalogo" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
           Categorías
         </NavLink>
-        <NavLink to="/catalogo" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
-          Ofertas
+        <NavLink to="/admin/dashboard" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
+          Métricas
         </NavLink>
-
-        <Link to="/carrito" className="header__cart">
-          🛒 Carrito
-        </Link>
 
         <Link to="/admin/dashboard" className="header__avatar" aria-label="Panel administrador">
           U

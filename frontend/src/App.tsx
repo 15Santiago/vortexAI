@@ -3,7 +3,6 @@ import MainLayout from './components/templates/MainLayout';
 import CatalogPage from './pages/CatalogPage';
 import ProductDetailPage from './pages/ProductDetailPage';
 import Dashboard from './pages/Dashboard';
-import Carrito from './pages/Carrito';
 
 export default function App() {
   return (
@@ -14,7 +13,6 @@ export default function App() {
           <Route path="/" element={<CatalogPage />} />
           <Route path="/catalogo" element={<CatalogPage />} />
           <Route path="/producto/:id" element={<ProductDetailPage />} />
-          <Route path="/carrito" element={<Carrito />} />
           <Route path="/admin/dashboard" element={<Dashboard />} />
         </Route>
       </Routes>

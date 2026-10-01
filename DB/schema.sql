@@ -31,6 +31,24 @@ CREATE TABLE users (
         FOREIGN KEY (role_id) REFERENCES roles (id)
 ) ENGINE = InnoDB;
 
+CREATE TABLE user_sessions (
+    token_hash CHAR(64) PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_sessions_user
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    INDEX idx_user_sessions_expiry (expires_at)
+) ENGINE = InnoDB;
+
+CREATE TABLE auth_login_attempts (
+    attempt_key CHAR(64) PRIMARY KEY,
+    failed_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    window_started_at DATETIME NOT NULL,
+    locked_until DATETIME NULL,
+    INDEX idx_auth_attempt_lock (locked_until)
+) ENGINE = InnoDB;
+
 CREATE TABLE categories (
     id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE

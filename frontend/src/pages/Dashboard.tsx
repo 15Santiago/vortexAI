@@ -1,42 +1,114 @@
+import { useEffect, useState } from 'react';
+import { API_BASE_URL } from '../data/api';
+import MetricCard from '../components/molecules/MetricCard';
+import MetricsOverview from '../components/organisms/MetricsOverview';
+import type { Metrics } from '../types/metrics';
+import './Dashboard.css';
+
+const numberFormat = new Intl.NumberFormat('es-MX');
+const currencyFormat = new Intl.NumberFormat('es-MX', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 2,
+});
+
 export default function Dashboard() {
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadMetrics() {
+      setLoading(true);
+      setError('');
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/metricas`, { credentials: 'include' });
+        const payload = (await response.json()) as Metrics & { error?: string };
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error || 'No se pudieron cargar las métricas.');
+        }
+        if (active) setMetrics(payload);
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : 'Error al conectar con la API.');
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadMetrics();
+    return () => {
+      active = false;
+    };
+  }, [refreshKey]);
+
   return (
-    <div style={{ display: 'flex', minHeight: '80vh', fontFamily: 'sans-serif', color: '#333' }}>
-      {/* Sidebar gris */}
-      <aside style={{ width: '200px', background: '#f5f5f5', borderRight: '1px solid #ddd', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <button style={{ padding: '10px', textAlign: 'left', border: '1px solid #000', borderRadius: '6px', background: '#fff' }}>Dashboard</button>
-        <button style={{ padding: '10px', textAlign: 'left', border: '1px solid #ccc', borderRadius: '6px', background: 'transparent' }}>Productos</button>
-        <button style={{ padding: '10px', textAlign: 'left', border: '1px solid #ccc', borderRadius: '6px', background: 'transparent' }}>Pedidos</button>
-        <button style={{ padding: '10px', textAlign: 'left', border: '1px solid #ccc', borderRadius: '6px', background: 'transparent' }}>Usuarios</button>
-        <button style={{ padding: '10px', textAlign: 'left', border: '1px solid #ccc', borderRadius: '6px', background: 'transparent' }}>Reportes</button>
-      </aside>
-
-      {/* Contenido Principal */}
-      <main style={{ flex: 1, padding: '20px' }}>
-        <h2>Dashboard analítico</h2>
-
-        {/* Tarjetas de Métricas */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '20px' }}>
-          {['Ventas del mes', 'Pedidos activos', 'Nuevos clientes', 'Tasa de conversión'].map((title, i) => (
-            <div key={i} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '15px' }}>
-              <span style={{ fontSize: '12px', color: '#666' }}>{title}</span>
-              <h2 style={{ margin: '10px 0 0 0' }}>000</h2>
-            </div>
-          ))}
+    <div className="dashboard-page">
+      <header className="dashboard-heading">
+        <div>
+          <span className="dashboard-heading__eyebrow">VORTEX / ANALÍTICA</span>
+          <h1>Métricas del catálogo</h1>
+          <p>Una lectura del catálogo y su actividad de reseñas.</p>
         </div>
+        <button
+          className="dashboard-refresh"
+          type="button"
+          onClick={() => setRefreshKey((current) => current + 1)}
+          disabled={loading}
+          aria-label="Actualizar métricas"
+          title="Actualizar métricas"
+        >
+          <span aria-hidden="true">↻</span>
+        </button>
+      </header>
 
-        {/* Gráfica y Recomendaciones */}
-        <div style={{ display: 'flex', gap: '20px' }}>
-          <div style={{ flex: 2, border: '1px solid #ccc', borderRadius: '8px', padding: '20px', height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
-            Ventas vs. tiempo (Gráfica)
-          </div>
-          <div style={{ flex: 1, border: '1px solid #ccc', borderRadius: '8px', padding: '20px' }}>
-            <h4>Productos más recomendados (IA)</h4>
-            <p style={{ color: '#888', fontSize: '13px' }}>1. Producto 1</p>
-            <p style={{ color: '#888', fontSize: '13px' }}>2. Producto 2</p>
-            <p style={{ color: '#888', fontSize: '13px' }}>3. Producto 3</p>
-          </div>
-        </div>
-      </main>
+      {error ? (
+        <section className="dashboard-state dashboard-state--error" role="alert">
+          <strong>No se pudieron cargar las métricas</strong>
+          <p>{error}</p>
+          <button type="button" onClick={() => setRefreshKey((current) => current + 1)}>Reintentar</button>
+        </section>
+      ) : loading && !metrics ? (
+        <section className="dashboard-state" aria-live="polite">Cargando métricas del catálogo...</section>
+      ) : metrics ? (
+        <>
+          <section className="metric-grid" aria-label="Indicadores principales">
+            <MetricCard
+              label="Productos"
+              value={numberFormat.format(metrics.total_products)}
+              detail={`${metrics.total_categories} categorías activas`}
+              symbol="#"
+              tone="cyan"
+            />
+            <MetricCard
+              label="Valoración media"
+              value={metrics.average_rating === null ? 'N/D' : `${metrics.average_rating.toFixed(2)} / 5`}
+              detail="Promedio de la última observación"
+              symbol="★"
+              tone="gold"
+            />
+            <MetricCard
+              label="Reseñas registradas"
+              value={numberFormat.format(metrics.total_reviews)}
+              detail="Suma de reseñas por producto"
+              symbol="↗"
+              tone="mint"
+            />
+            <MetricCard
+              label="Precio medio"
+              value={metrics.average_price === null ? 'N/D' : currencyFormat.format(metrics.average_price)}
+              detail="Precio vigente por producto"
+              symbol="$"
+              tone="coral"
+            />
+          </section>
+          <MetricsOverview metrics={metrics} />
+        </>
+      ) : null}
     </div>
   );
 }

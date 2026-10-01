@@ -16,6 +16,7 @@
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex: 0 0 auto;
 }
 
 .header__subtitle {
@@ -50,6 +51,35 @@
   color: #ffffff;
 }
 
+.header__user {
+  max-width: 10rem;
+  overflow: hidden;
+  color: #9edbd3;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header__account-action {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: #d5e1ef;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.header__account-action:hover { border-color: #69d8cf; color: #8fe4d9; }
+
+.header__account-action--primary {
+  border-color: #55c9c0;
+  background: rgba(65, 188, 177, 0.13);
+  color: #91e8dc;
+}
+
 .header__cart {
   padding: 0.6rem 1rem;
   border-radius: 999px;
@@ -80,4 +110,6 @@
     flex-wrap: wrap;
     gap: 0.75rem 1rem;
   }
+
+  .header__subtitle { display: none; }
 }

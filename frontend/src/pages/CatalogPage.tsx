@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import SearchInput from '../components/atoms/SearchInput';
 import ProductCard from '../components/atoms/ProductCard';
 import FilterSidebar from '../components/molecules/FilterSidebar';
+import { API_BASE_URL } from '../data/api';
 import type { Product } from '../types/product';
 import './CatalogPage.css';
 
@@ -33,7 +34,7 @@ export default function CatalogPage() {
   useEffect(() => {
     async function loadProducts() {
       try {
-        const response = await fetch('http://localhost:8000/api/productos');
+        const response = await fetch(`${API_BASE_URL}/api/productos`);
         const payload = (await response.json()) as { productos?: Product[] };
         setProducts(payload.productos ?? []);
       } catch (error) {

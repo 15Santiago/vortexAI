@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import type { Product } from '../types/product';
+import { API_BASE_URL } from '../data/api';
 import './ProductDetailPage.css';
 
 export default function ProductDetailPage() {
@@ -11,7 +12,7 @@ export default function ProductDetailPage() {
   useEffect(() => {
     async function loadProduct() {
       try {
-        const response = await fetch('http://localhost:8000/api/productos');
+        const response = await fetch(`${API_BASE_URL}/api/productos`);
         const payload = (await response.json()) as { productos?: Product[] };
         const products = payload.productos ?? [];
         const found = products.find((item) => item.id === id) ?? products[0] ?? null;

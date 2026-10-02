@@ -4,6 +4,7 @@ export type AuthUser = {
   id: number;
   full_name: string;
   email: string;
+  is_admin: boolean;
 };
 
 export type AuthContextValue = {

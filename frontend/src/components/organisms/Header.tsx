@@ -29,6 +29,11 @@ export default function Header() {
         <NavLink to="/admin/dashboard" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
           Métricas
         </NavLink>
+        {user?.is_admin ? (
+          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
+            Administración
+          </NavLink>
+        ) : null}
         {user ? (
           <>
             <span className="header__user">{user.full_name}</span>

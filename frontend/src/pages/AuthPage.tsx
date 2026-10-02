@@ -68,15 +68,15 @@ export default function AuthPage() {
             </label>
           ) : null}
           <label>
-            Correo electrónico
+            {isRegister ? 'Correo electrónico' : 'Correo electrónico o usuario'}
             <input
-              autoComplete="email"
+              autoComplete={isRegister ? 'email' : 'username'}
               maxLength={254}
               required
-              type="email"
+              type={isRegister ? 'email' : 'text'}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="nombre@correo.com"
+              placeholder={isRegister ? 'nombre@correo.com' : 'admin o nombre@correo.com'}
             />
           </label>
           <label>

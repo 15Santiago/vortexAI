@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import secrets
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -35,7 +36,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -68,6 +69,27 @@ class AccountRequest(BaseModel):
         if len(value.encode("utf-8")) > 72:
             raise ValueError("La contraseña no puede superar 72 bytes UTF-8.")
         return value
+
+
+class RoleCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_role_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name or any(unicodedata.category(character).startswith("C") for character in name):
+            raise ValueError("Escribe un nombre de rol válido.")
+        return name
+
+
+class PermissionAssignmentRequest(BaseModel):
+    permission_names: list[str] = Field(max_length=50)
+
+
+class UserRoleAssignmentRequest(BaseModel):
+    role_id: int = Field(gt=0)
 
 
 def _hash_password(password: str) -> str:
@@ -120,6 +142,73 @@ def _ensure_session_table(cursor) -> None:
         ) ENGINE = InnoDB
         """
     )
+
+
+def _ensure_role_schema(cursor) -> None:
+    cursor.execute(
+        """
+        SELECT CHARACTER_MAXIMUM_LENGTH
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'roles' AND column_name = 'name'
+        """
+    )
+    name_column = cursor.fetchone()
+    if name_column and name_column["CHARACTER_MAXIMUM_LENGTH"] < 80:
+        cursor.execute("ALTER TABLE roles MODIFY COLUMN name VARCHAR(80) NOT NULL")
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS permissions (
+            id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(80) NOT NULL UNIQUE,
+            description VARCHAR(255) NOT NULL
+        ) ENGINE = InnoDB
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS role_permissions (
+            role_id TINYINT UNSIGNED NOT NULL,
+            permission_id SMALLINT UNSIGNED NOT NULL,
+            PRIMARY KEY (role_id, permission_id),
+            CONSTRAINT fk_role_permissions_role
+                FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
+            CONSTRAINT fk_role_permissions_permission
+                FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE CASCADE
+        ) ENGINE = InnoDB
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO roles (name, description)
+        VALUES ('usuario', 'Acceso general a la aplicación'),
+               ('administrador', 'Administración de roles y permisos')
+        ON DUPLICATE KEY UPDATE name = VALUES(name)
+        """
+    )
+    permissions = [
+        ("catalog.view", "Consultar el catálogo público"),
+        ("metrics.view", "Consultar las métricas del catálogo"),
+        ("roles.manage", "Crear y consultar roles"),
+        ("permissions.manage", "Asignar permisos a roles"),
+        ("users.manage", "Consultar usuarios y asignarles roles"),
+    ]
+    cursor.executemany(
+        "INSERT IGNORE INTO permissions (name, description) VALUES (%s, %s)",
+        permissions,
+    )
+    cursor.execute("SELECT COUNT(*) AS total FROM role_permissions")
+    if cursor.fetchone()["total"] == 0:
+        cursor.execute(
+            """
+            INSERT IGNORE INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id
+            FROM roles r
+            JOIN permissions p ON
+                (r.name = 'usuario' AND p.name IN ('catalog.view', 'metrics.view'))
+                OR (r.name = 'administrador')
+            """
+        )
 
 
 def _create_session(cursor, user_id: int) -> str:
@@ -178,9 +267,10 @@ def get_current_user(session_cookie: str | None = Cookie(default=None, alias=AUT
     try:
         cursor.execute(
             """
-            SELECT u.id, u.full_name, u.email, s.token_hash
+            SELECT u.id, u.full_name, u.email, u.role_id, r.name AS role_name, s.token_hash
             FROM user_sessions s
             JOIN users u ON u.id = s.user_id
+            JOIN roles r ON r.id = u.role_id
             WHERE s.token_hash = %s AND s.expires_at > UTC_TIMESTAMP() AND u.is_active = TRUE
             """,
             (token_hash,),
@@ -195,7 +285,37 @@ def get_current_user(session_cookie: str | None = Cookie(default=None, alias=AUT
 
 
 def _public_user(user: dict[str, Any]) -> dict[str, Any]:
-    return {"id": user["id"], "full_name": user["full_name"], "email": user["email"]}
+    return {
+        "id": user["id"],
+        "full_name": user["full_name"],
+        "email": user["email"],
+        "is_admin": user.get("role_name") == "administrador",
+    }
+
+
+def require_permission(permission_name: str):
+    def permission_dependency(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM role_permissions rp
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE rp.role_id = %s AND p.name = %s
+                LIMIT 1
+                """,
+                (user["role_id"], permission_name),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(status_code=403, detail="No tienes permiso para realizar esta acción.")
+            return user
+        finally:
+            cursor.close()
+            conn.close()
+
+    return permission_dependency
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
@@ -235,6 +355,7 @@ def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, A
     cursor = conn.cursor(dictionary=True)
     try:
         _ensure_session_table(cursor)
+        _ensure_role_schema(cursor)
         cursor.execute("SELECT id FROM roles WHERE name = %s", ("usuario",))
         role = cursor.fetchone()
         if not role:
@@ -257,7 +378,7 @@ def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, A
         token = _create_session(cursor, user_id)
         conn.commit()
         _set_session_cookie(response, token)
-        return {"user": {"id": user_id, "full_name": full_name, "email": email}}
+        return {"user": {"id": user_id, "full_name": full_name, "email": email, "is_admin": False}}
     except IntegrityError as exc:
         conn.rollback()
         raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo.") from exc
@@ -271,9 +392,9 @@ def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, A
 
 @app.post("/api/auth/login")
 def iniciar_sesion(account: AccountRequest, request: Request, response: Response) -> dict[str, Any]:
-    email = account.email.strip().lower()
+    identifier = account.email.strip().lower()
     client_ip = request.client.host if request.client else "unknown"
-    attempt_key = _login_attempt_key(email, client_ip)
+    attempt_key = _login_attempt_key(identifier, client_ip)
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -286,8 +407,12 @@ def iniciar_sesion(account: AccountRequest, request: Request, response: Response
             raise HTTPException(status_code=429, detail="Demasiados intentos. Espera 15 minutos y vuelve a intentarlo.")
 
         cursor.execute(
-            "SELECT id, full_name, email, password_hash, is_active FROM users WHERE email = %s",
-            (email,),
+            """
+            SELECT u.id, u.full_name, u.email, u.password_hash, u.is_active, r.name AS role_name
+            FROM users u JOIN roles r ON r.id = u.role_id
+            WHERE u.email = %s OR u.username = %s
+            """,
+            (identifier, identifier),
         )
         user = cursor.fetchone()
         if not user or not user["is_active"] or not _verify_password(account.password, user["password_hash"]):
@@ -331,6 +456,162 @@ def cerrar_sesion(response: Response, user: dict[str, Any] = Depends(get_current
             samesite="lax",
         )
         return {"message": "Sesión cerrada."}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/api/admin/permissions")
+def listar_permisos(_user: dict[str, Any] = Depends(require_permission("permissions.manage"))) -> dict[str, Any]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT id, name, description FROM permissions ORDER BY name")
+        return {"permissions": cursor.fetchall()}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/api/admin/roles")
+def listar_roles(_user: dict[str, Any] = Depends(require_permission("roles.manage"))) -> dict[str, Any]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT r.id, r.name, r.description, COUNT(DISTINCT u.id) AS user_count,
+                   GROUP_CONCAT(DISTINCT p.name ORDER BY p.name) AS permission_names
+            FROM roles r
+            LEFT JOIN users u ON u.role_id = r.id
+            LEFT JOIN role_permissions rp ON rp.role_id = r.id
+            LEFT JOIN permissions p ON p.id = rp.permission_id
+            GROUP BY r.id, r.name, r.description
+            ORDER BY r.id
+            """
+        )
+        roles = cursor.fetchall()
+        for role in roles:
+            role["permission_names"] = role["permission_names"].split(",") if role["permission_names"] else []
+        return {"roles": roles}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/roles", status_code=201)
+def crear_rol(
+    role: RoleCreateRequest,
+    _user: dict[str, Any] = Depends(require_permission("roles.manage")),
+) -> dict[str, Any]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "INSERT INTO roles (name, description) VALUES (%s, %s)",
+            (role.name, role.description.strip() if role.description else None),
+        )
+        role_id = cursor.lastrowid
+        conn.commit()
+        return {"role": {"id": role_id, "name": role.name, "description": role.description, "user_count": 0, "permission_names": []}}
+    except IntegrityError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un rol con ese identificador.") from exc
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.put("/api/admin/roles/{role_id}/permissions")
+def asignar_permisos_a_rol(
+    role_id: int,
+    assignment: PermissionAssignmentRequest,
+    user: dict[str, Any] = Depends(require_permission("permissions.manage")),
+) -> dict[str, Any]:
+    permission_names = sorted(set(assignment.permission_names))
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT name FROM roles WHERE id = %s", (role_id,))
+        role = cursor.fetchone()
+        if not role:
+            raise HTTPException(status_code=404, detail="No se encontró el rol.")
+
+        cursor.execute("SELECT name FROM permissions")
+        known_permissions = {row["name"] for row in cursor.fetchall()}
+        unknown_permissions = set(permission_names) - known_permissions
+        if unknown_permissions:
+            raise HTTPException(status_code=422, detail="La lista contiene permisos no reconocidos.")
+
+        if role["name"] == "administrador" and not {"roles.manage", "permissions.manage", "users.manage"}.issubset(permission_names):
+            raise HTTPException(status_code=422, detail="El rol administrador debe conservar sus permisos de gestión.")
+        if user["role_id"] == role_id and not {"roles.manage", "permissions.manage"}.issubset(permission_names):
+            raise HTTPException(status_code=422, detail="No puedes quitarte tus permisos de administración.")
+
+        cursor.execute("DELETE FROM role_permissions WHERE role_id = %s", (role_id,))
+        if permission_names:
+            placeholders = ", ".join(["%s"] * len(permission_names))
+            cursor.execute(
+                f"SELECT id FROM permissions WHERE name IN ({placeholders})",
+                tuple(permission_names),
+            )
+            permission_ids = [row["id"] for row in cursor.fetchall()]
+            cursor.executemany(
+                "INSERT INTO role_permissions (role_id, permission_id) VALUES (%s, %s)",
+                [(role_id, permission_id) for permission_id in permission_ids],
+            )
+        conn.commit()
+        return {"role_id": role_id, "permission_names": permission_names}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/api/admin/users")
+def listar_usuarios(_user: dict[str, Any] = Depends(require_permission("users.manage"))) -> dict[str, Any]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT u.id, u.full_name, u.email, u.is_active, u.created_at,
+                   u.role_id, r.name AS role_name
+            FROM users u JOIN roles r ON r.id = u.role_id
+            ORDER BY u.created_at DESC, u.id DESC
+            """
+        )
+        return {"users": cursor.fetchall()}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.put("/api/admin/users/{user_id}/role")
+def asignar_rol_a_usuario(
+    user_id: int,
+    assignment: UserRoleAssignmentRequest,
+    current_user: dict[str, Any] = Depends(require_permission("users.manage")),
+) -> dict[str, str]:
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=422, detail="No puedes cambiar tu propio rol.")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM roles WHERE id = %s", (assignment.role_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="No se encontró el rol.")
+        cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="No se encontró el usuario.")
+        cursor.execute("UPDATE users SET role_id = %s WHERE id = %s", (assignment.role_id, user_id))
+        conn.commit()
+        return {"message": "Rol de usuario actualizado."}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cursor.close()
         conn.close()
@@ -380,7 +661,7 @@ def obtener_productos() -> dict[str, Any]:
 
 
 @app.get("/api/metricas")
-def obtener_metricas(_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+def obtener_metricas(_user: dict[str, Any] = Depends(require_permission("metrics.view"))) -> dict[str, Any]:
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)

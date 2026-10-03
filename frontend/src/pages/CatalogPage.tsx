@@ -34,7 +34,7 @@ export default function CatalogPage() {
   useEffect(() => {
     async function loadProducts() {
       try {
-        const response = await fetch('http://localhost:8000/api/productos');
+        const response = await fetch(`${API_BASE_URL}/api/productos`);
         const data = await response.json();
         
         // Maneja tanto si FastAPI devuelve el arreglo plano como si viene dentro de un objeto
@@ -109,4 +109,4 @@ export default function CatalogPage() {
       </div>
     </div>
   );
-};
+}

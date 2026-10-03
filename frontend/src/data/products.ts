@@ -7,11 +7,13 @@ export async function getProducts(): Promise<Product[]> {
     throw new Error('No se pudo cargar el catálogo de productos.');
   }
 
-  const payload = (await response.json()) as { productos?: Product[] };
-  return payload.productos ?? [];
+  const data = await response.json();
+  
+  // Soporta tanto si la API devuelve un arreglo plano como si viene dentro de { productos: [...] }
+  return Array.isArray(data) ? data : (data.productos ?? []);
 }
 
 export async function getProductById(id: string): Promise<Product | undefined> {
   const products = await getProducts();
-  return products.find((product) => product.id === id);
+  return products.find((p) => String(p.id) === String(id));
 }

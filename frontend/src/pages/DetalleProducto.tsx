@@ -1,122 +1,111 @@
-import { useEffect, useState } from 'react';
-import { useParams, useLocation, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import type { Product } from '../types/product';
 
-interface Producto {
-  product_title: string;
-  discounted_price: number;
-  product_image_url: string;
-  product_rating: number;
+interface DetalleProductoProps {
+  product: Product;
 }
 
-export default function DetalleProducto() {
-  const { id } = useParams();
-  const location = useLocation();
-  const [producto, setProducto] = useState<Producto | null>(location.state?.producto || null);
-  const [cargando, setCargando] = useState(!location.state?.producto);
+export default function DetalleProducto({ product }: DetalleProductoProps) {
+  const p = product as Record<string, unknown>;
+  const rawId = p.id ?? p._id ?? 1;
+  const numericId = typeof rawId === 'number' ? rawId : parseInt(String(rawId), 10) || 1;
 
-  useEffect(() => {
-    if (!producto) {
-      fetch('http://127.0.0.1:8000/api/productos')
-        .then((res) => res.json())
-        .then((data) => {
-          const lista: Producto[] = data.productos || [];
-          const index = parseInt(id || '0', 10);
-          setProducto(lista[index] || lista[0] || null);
-          setCargando(false);
-        })
-        .catch(() => setCargando(false));
+  const discountedPrice = typeof p.discounted_price === 'number' ? p.discounted_price : null;
+  const standardPrice = typeof p.price === 'number' ? p.price : null;
+  const originalPrice = typeof p.original_price === 'number' ? p.original_price : null;
+  const price = discountedPrice ?? standardPrice ?? originalPrice ?? (numericId * 15.99 + 10);
+  const fakeOriginal = originalPrice ?? (price * 1.25);
+
+  // Función inteligente de imágenes según la categoría o título
+  const getSmartImage = () => {
+    const imageUrlVal = p.product_image_url ?? p.image ?? p.imageUrl;
+    if (
+      typeof imageUrlVal === 'string' && 
+      imageUrlVal.trim() !== "" && 
+      !imageUrlVal.includes("placeholder.com")
+    ) {
+      return imageUrlVal;
     }
-  }, [id, producto]);
 
-  if (cargando) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
-        Cargando detalles del producto...
-      </div>
-    );
-  }
+    const title = typeof p.product_title === 'string' ? p.product_title : (typeof p.title === 'string' ? p.title : '');
+    const category = typeof p.product_category === 'string' ? p.product_category : (typeof p.category === 'string' ? p.category : '');
+    const text = (title + " " + category).toLowerCase();
+    
+    if (text.includes("airpod") || text.includes("headphone") || text.includes("earbud") || text.includes("audifono") || text.includes("sound") || text.includes("audio") || text.includes("wireless")) {
+      return "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=60";
+    }
+    if (text.includes("fitbit") || text.includes("tracker") || text.includes("band") || text.includes("pulsera") || text.includes("watch") || text.includes("smartwatch")) {
+      return "https://images.unsplash.com/photo-1575311373937-040b8e1fd5b6?w=600&auto=format&fit=crop&q=60";
+    }
+    if (text.includes("roku") || text.includes("fire stick") || text.includes("chromecast") || text.includes("streaming") || text.includes("box")) {
+      return "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=600&auto=format&fit=crop&q=60";
+    }
+    if (text.includes("mount") || text.includes("bracket") || text.includes("wall") || text.includes("soporte")) {
+      return "https://images.unsplash.com/photo-1593784991095-a205069470b6?w=600&auto=format&fit=crop&q=60";
+    }
+    if (text.includes("phone") || text.includes("iphone") || text.includes("mobile") || text.includes("smartphone") || text.includes("galaxy")) {
+      return "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=600&auto=format&fit=crop&q=60";
+    }
+    if (text.includes("laptop") || text.includes("computer") || text.includes("pc") || text.includes("macbook")) {
+      return "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=600&auto=format&fit=crop&q=60";
+    }
+    if (text.includes("camera") || text.includes("camara") || text.includes("lens")) {
+      return "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&auto=format&fit=crop&q=60";
+    }
 
-  if (!producto) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#f8fafc' }}>
-        <h2>No se encontró información del producto.</h2>
-        <Link to="/catalogo" style={{ color: '#38bdf8', textDecoration: 'underline' }}>Volver al catálogo</Link>
-      </div>
-    );
-  }
+    return "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=600&auto=format&fit=crop&q=60";
+  };
+
+  const imageUrl = getSmartImage();
+  const title = typeof p.product_title === 'string' ? p.product_title : (typeof p.title === 'string' ? p.title : 'Producto');
+  const category = typeof p.product_category === 'string' ? p.product_category : (typeof p.category === 'string' ? p.category : 'General');
+  const rating = typeof p.product_rating === 'number' ? p.product_rating : 4.5;
+  const reviewsCount = typeof p.total_reviews === 'number' ? p.total_reviews : 120;
+  const availability = typeof p.buy_box_availability === 'string' ? p.buy_box_availability : 'Disponible en stock';
+  const delivery = typeof p.delivery_date === 'string' ? p.delivery_date : 'Envío estándar en 2 días hábiles';
 
   return (
-    <div style={{ padding: '30px 20px', fontFamily: 'sans-serif', color: '#f8fafc', maxWidth: '1000px', margin: '0 auto' }}>
-      {/* Botón superior limpio que solo mantiene Inicio */}
-      <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '20px' }}>
-        <Link to="/catalogo" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: '500' }}>
-          ← Inicio
-        </Link>
-      </p>
+    <div className="product-detail">
+      <div className="product-detail__back">
+        <Link to="/catalogo">← Volver al catálogo</Link>
+      </div>
 
-      <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        {/* Contenedor claro para la imagen */}
-        <div style={{ 
-          flex: '1 1 350px', 
-          height: '350px', 
-          background: '#f8fafc', 
-          border: '1px solid #334155', 
-          borderRadius: '12px', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          padding: '20px'
-        }}>
-          <img 
-            src={producto.product_image_url} 
-            alt={producto.product_title} 
-            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-          />
+      <div className="product-detail__layout">
+        <div className="product-detail__image-wrap">
+          <img src={imageUrl} alt={title} className="product-detail__image" />
         </div>
 
-        {/* Información del Producto */}
-        <div style={{ flex: '1 1 400px' }}>
-          <h1 style={{ fontSize: '24px', color: '#f8fafc', marginBottom: '10px', lineHeight: '1.3' }}>
-            {producto.product_title}
-          </h1>
-          
-          <p style={{ color: '#f59e0b', fontSize: '14px', marginBottom: '15px' }}>
-            ★ {producto.product_rating || '4.5'} <span style={{ color: '#94a3b8' }}>(Calificación del producto)</span>
-          </p>
+        <div className="product-detail__info">
+          <span className="product-detail__category">{category}</span>
+          <h1>{title}</h1>
 
-          <h2 style={{ fontSize: '32px', color: '#38bdf8', marginBottom: '20px' }}>
-            $ {producto.discounted_price}
-          </h2>
-          
-          <div style={{ 
-            border: '1px solid #334155', 
-            background: '#1e293b', 
-            padding: '8px 16px', 
-            borderRadius: '8px', 
-            width: 'fit-content', 
-            marginBottom: '25px', 
-            display: 'flex', 
-            gap: '15px', 
-            alignItems: 'center',
-            color: '#f8fafc'
-          }}>
-            <span style={{ fontSize: '14px', color: '#94a3b8' }}>Cantidad:</span>
-            <button style={{ border: 'none', background: 'none', color: '#f8fafc', fontSize: '18px', cursor: 'pointer' }}>-</button>
-            <strong>1</strong>
-            <button style={{ border: 'none', background: 'none', color: '#f8fafc', fontSize: '18px', cursor: 'pointer' }}>+</button>
+          <p className="product-detail__rating">★ {rating} · {reviewsCount} reseñas</p>
+
+          <div className="product-detail__price-block">
+            <strong>${Number(price).toFixed(2)}</strong>
+            <span style={{ textDecoration: 'line-through', color: '#888', marginLeft: '10px', fontSize: '1rem' }}>
+              ${Number(fakeOriginal).toFixed(2)}
+            </span>
           </div>
 
-          <div style={{ display: 'flex', gap: '15px' }}>
-            <Link to="/admin/dashboard" style={{ 
-              flex: 1, 
-              textAlign: 'center', 
-              padding: '12px', 
-              background: '#2563eb', 
-              border: '1px solid #2563eb', 
-              borderRadius: '8px', 
-              color: '#ffffff', 
-              fontWeight: 'bold' 
-            }}>
+          <div className="product-detail__meta">
+            <div>
+              <span>Disponibilidad</span>
+              <strong>{availability}</strong>
+            </div>
+            <div>
+              <span>Entrega</span>
+              <strong>{delivery}</strong>
+            </div>
+          </div>
+
+          <div className="product-detail__actions">
+            {/* Enlace directo hacia tu Dashboard analítico */}
+            <Link 
+              to="/admin/dashboard" 
+              className="product-detail__button product-detail__button--primary"
+              style={{ textAlign: 'center', textDecoration: 'none', display: 'inline-block' }}
+            >
               Ver métricas
             </Link>
           </div>

@@ -34,8 +34,11 @@ export default function CatalogPage() {
     async function loadProducts() {
       try {
         const response = await fetch('http://localhost:8000/api/productos');
-        const payload = (await response.json()) as { productos?: Product[] };
-        setProducts(payload.productos ?? []);
+        const data = await response.json();
+        
+        // Maneja tanto si FastAPI devuelve el arreglo plano como si viene dentro de un objeto
+        const list = Array.isArray(data) ? data : (data.productos ?? []);
+        setProducts(list);
       } catch (error) {
         console.error('Error al cargar productos:', error);
       } finally {
@@ -105,4 +108,4 @@ export default function CatalogPage() {
       </div>
     </div>
   );
-}
+};

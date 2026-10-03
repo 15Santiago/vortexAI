@@ -17,7 +17,7 @@ def get_db_connection():
         "autocommit": False,
     }
 
-    db_name = os.getenv("DB_NAME")
+    db_name = os.getenv("DB_NAME", "vortex_db")
     if db_name:
         config["database"] = db_name
 

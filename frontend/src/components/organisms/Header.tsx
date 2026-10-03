@@ -21,10 +21,10 @@ export default function Header() {
           Métricas
         </NavLink>
 
-        <Link to="/admin/dashboard" className="header__avatar" aria-label="Panel administrador">
+        <Link to="/login" className="header__avatar" aria-label="Iniciar sesión">
           U
         </Link>
       </nav>
     </header>
   );
-}
+};

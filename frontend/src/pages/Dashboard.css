@@ -1,0 +1,308 @@
+.dashboard-page {
+  --metrics-line: rgba(159, 177, 202, 0.14);
+  --metrics-muted: #96a5bb;
+  --metrics-text: #edf3fa;
+  display: grid;
+  gap: 1.25rem;
+  color: var(--metrics-text);
+}
+
+.dashboard-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0 0.2rem;
+  animation: dashboard-enter 420ms ease-out both;
+}
+
+.dashboard-heading__eyebrow,
+.metrics-panel__eyebrow {
+  color: #79d9d0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.dashboard-heading h1 {
+  margin-top: 0.32rem;
+  color: #f4f7fb;
+  font-size: 1.85rem;
+  line-height: 1.15;
+}
+
+.dashboard-heading p {
+  margin-top: 0.45rem;
+  color: var(--metrics-muted);
+  font-size: 0.92rem;
+}
+
+.dashboard-refresh {
+  display: grid;
+  width: 2.7rem;
+  height: 2.7rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--metrics-line);
+  border-radius: 8px;
+  background: #172234;
+  color: #d6e2f1;
+  cursor: pointer;
+  font-size: 1.35rem;
+  transition: border-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.dashboard-refresh:hover:not(:disabled) {
+  transform: rotate(-20deg);
+  border-color: #53c8c0;
+  color: #73e0d5;
+}
+
+.dashboard-refresh:disabled { cursor: wait; opacity: 0.55; }
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  animation: dashboard-enter 480ms 70ms ease-out both;
+}
+
+.metric-card {
+  display: flex;
+  min-height: 145px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--metrics-line);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(24, 38, 57, 0.96), rgba(15, 25, 40, 0.96));
+}
+
+.metric-card__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.metric-card__label { color: #aab7c9; font-size: 0.79rem; font-weight: 650; }
+
+.metric-glyph {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.metric-glyph--cyan { background: rgba(45, 190, 216, 0.14); color: #54d8ed; }
+.metric-glyph--gold { background: rgba(240, 183, 68, 0.14); color: #f1c25d; }
+.metric-glyph--mint { background: rgba(87, 207, 164, 0.14); color: #6bdfb5; }
+.metric-glyph--coral { background: rgba(241, 131, 111, 0.14); color: #f39882; }
+
+.metric-card__value {
+  overflow-wrap: anywhere;
+  color: #f6f8fb;
+  font-size: clamp(1.35rem, 2vw, 1.85rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.metric-card__detail { color: #8494aa; font-size: 0.72rem; }
+
+.metrics-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.85fr);
+  gap: 0.85rem;
+  animation: dashboard-enter 520ms 130ms ease-out both;
+}
+
+.metrics-panel {
+  min-width: 0;
+  padding: 1.05rem 1.1rem;
+  border: 1px solid var(--metrics-line);
+  border-radius: 8px;
+  background: rgba(15, 25, 40, 0.92);
+}
+
+.metrics-panel__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+}
+
+.metrics-panel__heading h2 { margin-top: 0.28rem; color: #edf3fa; font-size: 1.02rem; line-height: 1.3; }
+
+.metrics-panel__count {
+  padding: 0.32rem 0.5rem;
+  border: 1px solid var(--metrics-line);
+  border-radius: 5px;
+  color: #a9b8cc;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.metrics-panel__mark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(241, 152, 130, 0.12);
+  color: #f39882;
+  font-weight: 800;
+}
+
+.category-list,
+.price-list { display: grid; gap: 0.86rem; }
+
+.category-row__meta,
+.price-row__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  margin-bottom: 0.38rem;
+  font-size: 0.76rem;
+}
+
+.category-row__name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.48rem;
+  overflow: hidden;
+  color: #dce5f0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-row__index { color: #62d8e6; font-size: 0.64rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.category-row__index--1 { color: #efc35d; }
+.category-row__index--2 { color: #6fddb3; }
+.category-row__index--3 { color: #f19783; }
+
+.category-row__count {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  color: #eff4fa;
+  font-variant-numeric: tabular-nums;
+}
+
+.category-row__count small { width: 2.8rem; color: #899ab0; text-align: right; }
+
+.category-row__track,
+.price-row__track { height: 5px; overflow: hidden; border-radius: 4px; background: rgba(146, 164, 190, 0.12); }
+
+.category-row__track span,
+.price-row__track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38b6cb, #68daca);
+  transition: width 500ms ease;
+}
+
+.price-list { gap: 1.35rem; padding-top: 0.35rem; }
+.price-row__meta { color: #b8c4d4; }
+.price-row__meta strong { color: #eff4fa; font-variant-numeric: tabular-nums; }
+.price-row__track--1 span { background: linear-gradient(90deg, #d5a945, #f0ca68); }
+.price-row__track--2 span { background: linear-gradient(90deg, #44bd91, #7ce0ae); }
+.price-row__track--3 span { background: linear-gradient(90deg, #df7969, #f3a27f); }
+.metrics-panel__footnote { margin-top: 1.2rem; color: #7f90a6; font-size: 0.68rem; line-height: 1.45; }
+.metrics-panel--ranking { animation: dashboard-enter 560ms 180ms ease-out both; }
+.review-ranking { display: grid; }
+
+.review-ranking__item {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) 4.8rem 6.3rem 1rem;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.72rem 0;
+  border-top: 1px solid rgba(159, 177, 202, 0.1);
+}
+
+.review-ranking__number { color: #7c8da4; font-size: 0.72rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.review-ranking__number--1 { color: #f0c35f; }
+.review-ranking__number--2 { color: #7dd9d0; }
+.review-ranking__number--3 { color: #ee987f; }
+.review-ranking__product { display: grid; min-width: 0; gap: 0.2rem; }
+
+.review-ranking__product strong {
+  overflow: hidden;
+  color: #e5edf7;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-ranking__product small,
+.review-ranking__reviews small { color: #8494aa; font-size: 0.67rem; font-weight: 450; }
+.review-ranking__rating { color: #dce5f0; font-size: 0.75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.review-ranking__rating span { color: #f0c35f; }
+.review-ranking__reviews { color: #dce5f0; font-size: 0.74rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.review-ranking__arrow { color: #65778f; font-size: 0.9rem; transition: color 150ms ease, transform 150ms ease; }
+.review-ranking__item:hover .review-ranking__arrow { transform: translate(2px, -2px); color: #68daca; }
+
+.dashboard-state {
+  display: grid;
+  min-height: 240px;
+  align-content: center;
+  justify-items: center;
+  gap: 0.55rem;
+  padding: 2rem;
+  border: 1px solid var(--metrics-line);
+  border-radius: 8px;
+  background: rgba(15, 25, 40, 0.92);
+  color: #afbdd0;
+  text-align: center;
+}
+
+.dashboard-state--error strong { color: #f0a08a; }
+.dashboard-state--error p { max-width: 38rem; font-size: 0.85rem; }
+
+.dashboard-state button {
+  margin-top: 0.4rem;
+  padding: 0.52rem 0.8rem;
+  border: 1px solid rgba(104, 218, 202, 0.35);
+  border-radius: 6px;
+  background: rgba(104, 218, 202, 0.1);
+  color: #88e5d7;
+  cursor: pointer;
+}
+
+@keyframes dashboard-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics-panels { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .dashboard-page { gap: 0.85rem; }
+  .dashboard-heading h1 { font-size: 1.5rem; }
+  .dashboard-heading p { max-width: 18rem; font-size: 0.82rem; }
+  .metric-grid { gap: 0.6rem; }
+  .metric-card { min-height: 132px; padding: 0.8rem; }
+  .metric-card__label { font-size: 0.7rem; }
+  .metric-card__detail { min-height: 2em; font-size: 0.65rem; }
+  .metric-card__value { font-size: 1.3rem; }
+  .metrics-panel { padding: 0.85rem; }
+  .review-ranking__item { grid-template-columns: 1.5rem minmax(0, 1fr) auto; gap: 0.45rem; }
+  .review-ranking__rating { grid-column: 2; grid-row: 2; }
+  .review-ranking__reviews { grid-column: 3; grid-row: 1 / span 2; }
+  .review-ranking__arrow { display: none; }
+}

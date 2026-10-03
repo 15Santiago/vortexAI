@@ -6,7 +6,7 @@ USE vortexai;
 
 CREATE TABLE roles (
     id TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(30) NOT NULL UNIQUE,
+    name VARCHAR(80) NOT NULL UNIQUE,
     description VARCHAR(255) NULL
 ) ENGINE = InnoDB;
 
@@ -30,6 +30,56 @@ CREATE TABLE users (
     CONSTRAINT fk_users_role
         FOREIGN KEY (role_id) REFERENCES roles (id)
 ) ENGINE = InnoDB;
+
+CREATE TABLE user_sessions (
+    token_hash CHAR(64) PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_sessions_user
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    INDEX idx_user_sessions_expiry (expires_at)
+) ENGINE = InnoDB;
+
+CREATE TABLE auth_login_attempts (
+    attempt_key CHAR(64) PRIMARY KEY,
+    failed_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    window_started_at DATETIME NOT NULL,
+    locked_until DATETIME NULL,
+    INDEX idx_auth_attempt_lock (locked_until)
+) ENGINE = InnoDB;
+
+CREATE TABLE permissions (
+    id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(80) NOT NULL UNIQUE,
+    description VARCHAR(255) NOT NULL
+) ENGINE = InnoDB;
+
+INSERT INTO permissions (name, description)
+VALUES
+    ('catalog.view', 'Consultar el catálogo público'),
+    ('metrics.view', 'Consultar las métricas del catálogo'),
+    ('roles.manage', 'Crear y consultar roles'),
+    ('permissions.manage', 'Asignar permisos a roles'),
+    ('users.manage', 'Consultar usuarios y asignarles roles')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
+
+CREATE TABLE role_permissions (
+    role_id TINYINT UNSIGNED NOT NULL,
+    permission_id SMALLINT UNSIGNED NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    CONSTRAINT fk_role_permissions_role
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
+    CONSTRAINT fk_role_permissions_permission
+        FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE CASCADE
+) ENGINE = InnoDB;
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON
+    (r.name = 'usuario' AND p.name IN ('catalog.view', 'metrics.view'))
+    OR (r.name = 'administrador');
 
 CREATE TABLE categories (
     id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

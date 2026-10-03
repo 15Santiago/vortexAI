@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import type { Product } from '../types/product';
+import { API_BASE_URL } from '../data/api';
 import DetalleProducto from './DetalleProducto';
 import './ProductDetailPage.css';
 
@@ -13,30 +14,10 @@ export default function ProductDetailPage() {
     async function loadProduct() {
       try {
         const response = await fetch('http://localhost:8000/api/productos');
-        const data = await response.json();
-
-        let products: Product[] = [];
-        if (Array.isArray(data)) {
-          products = data;
-        } else if (data && typeof data === 'object') {
-          const payload = data as { productos?: Product[]; data?: Product[] };
-          products = payload.productos ?? payload.data ?? [];
-        }
-
-        const found = products.find((item) => {
-          const pItem = item as Record<string, unknown>;
-          const itemId = String(pItem.id ?? pItem._id ?? '');
-          return itemId === String(id);
-        });
-
-        if (found) {
-          setProduct(found);
-        } else if (products.length > 0) {
-          setProduct(products[0]);
-        } else {
-          setProduct(null);
-        }
-
+        const payload = (await response.json()) as { productos?: Product[] };
+        const products = payload.productos ?? [];
+        const found = products.find((item) => item.id === id) ?? products[0] ?? null;
+        setProduct(found);
       } catch (error) {
         console.error('Error al cargar detalle:', error);
       } finally {

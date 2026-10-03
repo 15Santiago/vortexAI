@@ -1,0 +1,117 @@
+.auth-page {
+  display: grid;
+  min-height: min(680px, calc(100vh - 180px));
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  overflow: hidden;
+  border: 1px solid rgba(157, 178, 201, 0.16);
+  border-radius: 8px;
+  background: #101b2a;
+}
+
+.auth-intro {
+  display: flex;
+  min-height: 540px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: clamp(1.4rem, 4vw, 3rem);
+  border-right: 1px solid rgba(157, 178, 201, 0.15);
+  background-color: #122333;
+  background-image: linear-gradient(rgba(174, 196, 216, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(174, 196, 216, 0.035) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.auth-intro__brand { color: #f0f5fa; font-size: 1rem; font-weight: 800; letter-spacing: 0.06em; }
+.auth-intro__brand span { color: #7ad9cd; }
+.auth-intro .home-kicker { margin-top: auto; }
+.auth-intro h1 { margin-top: 1rem; color: #f2f6fb; font-size: clamp(2.2rem, 4.5vw, 3.8rem); line-height: 1.04; }
+.auth-intro > p { max-width: 28rem; margin-top: 1rem; color: #a9b9ca; font-size: 0.92rem; line-height: 1.7; }
+
+.auth-intro__signals {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(157, 178, 201, 0.18);
+  color: #93a7bb;
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.auth-intro__signals span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.auth-intro__signals i { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: #74d8ce; }
+.auth-intro__signals span:nth-child(2) i { background: #e9bf61; }
+.auth-intro__signals span:nth-child(3) i { background: #e9907e; }
+
+.auth-form-panel { align-self: center; padding: clamp(1.3rem, 3vw, 2.4rem); }
+
+.auth-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(157, 178, 201, 0.14);
+  border-radius: 6px;
+  background: #0b1522;
+}
+
+.auth-mode a { padding: 0.55rem 0.4rem; border-radius: 4px; color: #97a8bc; font-size: 0.75rem; font-weight: 650; text-align: center; }
+.auth-mode a.auth-mode__active { background: #213747; color: #a3e8de; }
+.auth-form-panel__heading { margin-top: 2rem; }
+.auth-form-panel__heading h2 { margin-top: 0.35rem; color: #f0f5fa; font-size: 1.45rem; }
+.auth-form-panel__heading p { margin-top: 0.45rem; color: #9dacc0; font-size: 0.8rem; line-height: 1.5; }
+
+.auth-form { display: grid; gap: 1rem; margin-top: 1.45rem; }
+.auth-form label { display: grid; gap: 0.42rem; color: #c4cfdd; font-size: 0.73rem; font-weight: 650; }
+
+.auth-form input {
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(157, 178, 201, 0.2);
+  border-radius: 5px;
+  outline: none;
+  background: #0b1522;
+  color: #f1f5fa;
+  font-size: 0.82rem;
+}
+
+.auth-form input::placeholder { color: #64768b; }
+.auth-form input:focus { border-color: #63cfc5; box-shadow: 0 0 0 3px rgba(99, 207, 197, 0.1); }
+.auth-form__error { color: #f1a08a; font-size: 0.76rem; line-height: 1.45; }
+
+.auth-submit {
+  display: flex;
+  min-height: 2.9rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #288d8a;
+  border-radius: 5px;
+  background: #176f77;
+  color: #f2fffc;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.auth-submit:hover:not(:disabled) { background: #208a8b; }
+.auth-submit:disabled { cursor: wait; opacity: 0.65; }
+.auth-form-panel__back { margin-top: 1.5rem; color: #8d9eb2; font-size: 0.76rem; }
+.auth-form-panel__back a:hover { color: #8be0d5; }
+.auth-route-state { display: grid; min-height: 50vh; place-items: center; color: #a9b8c9; }
+
+@media (max-width: 760px) {
+  .auth-page { max-width: 540px; grid-template-columns: 1fr; margin: 0 auto; }
+  .auth-intro { min-height: auto; gap: 1.2rem; padding: 1.3rem; border-right: 0; border-bottom: 1px solid rgba(157, 178, 201, 0.15); }
+  .auth-intro .home-kicker { margin-top: 0.4rem; }
+  .auth-intro h1 { margin-top: -0.6rem; font-size: 2rem; }
+  .auth-intro > p { margin-top: -0.7rem; font-size: 0.8rem; }
+  .auth-intro__signals { margin-top: 0.2rem; }
+  .auth-form-panel { padding: 1.3rem; }
+  .auth-form-panel__heading { margin-top: 1.3rem; }
+}

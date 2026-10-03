@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import SearchInput from '../components/atoms/SearchInput';
 import ProductCard from '../components/atoms/ProductCard';
 import FilterSidebar from '../components/molecules/FilterSidebar';
+import { API_BASE_URL } from '../data/api';
 import type { Product } from '../types/product';
 import './CatalogPage.css';
 

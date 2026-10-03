@@ -1,7 +1,8 @@
 import type { Product } from '../types/product';
+import { API_BASE_URL } from './api';
 
 export async function getProducts(): Promise<Product[]> {
-  const response = await fetch('http://localhost:8000/api/productos');
+  const response = await fetch(`${API_BASE_URL}/api/productos`);
 
   if (!response.ok) {
     throw new Error('No se pudo cargar el catálogo de productos.');

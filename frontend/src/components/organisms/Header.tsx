@@ -1,29 +1,50 @@
-import { NavLink, Link } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../auth/useAuth';
 import Logo from '../atoms/Logo';
 import './Header.css';
 
 export default function Header() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await logout();
+    navigate('/');
+  }
+
   return (
     <header className="header">
-      <div className="header__brand">
+      <Link to="/" className="header__brand">
         <Logo />
         <span className="header__subtitle">Analítica de comercio electrónico</span>
-      </div>
+      </Link>
 
       <nav className="header__nav" aria-label="Navegación principal">
-        <NavLink to="/catalogo" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
+        <NavLink to="/" end className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
           Inicio
         </NavLink>
         <NavLink to="/catalogo" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
-          Categorías
+          Catálogo
         </NavLink>
         <NavLink to="/admin/dashboard" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
           Métricas
         </NavLink>
-
-        <Link to="/login" className="header__avatar" aria-label="Iniciar sesión">
-          U
-        </Link>
+        {user?.is_admin ? (
+          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
+            Administración
+          </NavLink>
+        ) : null}
+        {user ? (
+          <>
+            <span className="header__user">{user.full_name}</span>
+            <button className="header__account-action" type="button" onClick={() => void handleLogout()}>Salir</button>
+          </>
+        ) : (
+          <>
+            <Link to="/acceso" className="header__account-action">Iniciar sesión</Link>
+            <Link to="/registro" className="header__account-action header__account-action--primary">Crear cuenta</Link>
+          </>
+        )}
       </nav>
     </header>
   );

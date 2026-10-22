@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import SearchInput from '../components/atoms/SearchInput';
-import ProductCard from '../components/atoms/ProductCard';
 import FilterSidebar from '../components/molecules/FilterSidebar';
+import CatalogResults from '../components/organisms/CatalogResults';
 import { API_BASE_URL } from '../data/api';
 import type { Product } from '../types/product';
 import './CatalogPage.css';
@@ -86,23 +86,7 @@ export default function CatalogPage() {
           onSelectCategory={setSelectedCategory}
         />
 
-        <main className="catalog-page__content">
-          <div className="catalog-page__summary">
-            Resultados encontrados: <strong>{filteredProducts.length}</strong> productos
-          </div>
-
-          {loading ? (
-            <div className="catalog-page__empty">Cargando catálogo...</div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="catalog-page__empty">No hay productos que coincidan con tu búsqueda.</div>
-          ) : (
-            <div className="catalog-page__grid">
-              {filteredProducts.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
-          )}
-        </main>
+        <CatalogResults products={filteredProducts} loading={loading} />
       </div>
     </div>
   );

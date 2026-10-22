@@ -49,6 +49,26 @@ CREATE TABLE auth_login_attempts (
     INDEX idx_auth_attempt_lock (locked_until)
 ) ENGINE = InnoDB;
 
+CREATE TABLE audit_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    actor_user_id BIGINT UNSIGNED NULL,
+    actor_name VARCHAR(150) NOT NULL,
+    actor_email VARCHAR(254) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id VARCHAR(100) NULL,
+    old_values JSON NULL,
+    new_values JSON NULL,
+    ip_address VARCHAR(45) NULL,
+    user_agent VARCHAR(512) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),
+    CONSTRAINT fk_audit_logs_actor
+        FOREIGN KEY (actor_user_id) REFERENCES users (id) ON DELETE SET NULL,
+    INDEX idx_audit_logs_created_at (created_at),
+    INDEX idx_audit_logs_actor_created_at (actor_user_id, created_at),
+    INDEX idx_audit_logs_entity (entity_type, entity_id)
+) ENGINE = InnoDB;
+
 CREATE TABLE permissions (
     id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(80) NOT NULL UNIQUE,
@@ -61,7 +81,8 @@ VALUES
     ('metrics.view', 'Consultar las métricas del catálogo'),
     ('roles.manage', 'Crear y consultar roles'),
     ('permissions.manage', 'Asignar permisos a roles'),
-    ('users.manage', 'Consultar usuarios y asignarles roles')
+    ('users.manage', 'Consultar usuarios y asignarles roles'),
+    ('audit.view', 'Consultar los registros de auditoría')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
 CREATE TABLE role_permissions (
@@ -71,6 +92,17 @@ CREATE TABLE role_permissions (
     CONSTRAINT fk_role_permissions_role
         FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
     CONSTRAINT fk_role_permissions_permission
+        FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE CASCADE
+) ENGINE = InnoDB;
+
+CREATE TABLE user_permissions (
+    user_id BIGINT UNSIGNED NOT NULL,
+    permission_id SMALLINT UNSIGNED NOT NULL,
+    is_granted BOOLEAN NOT NULL,
+    PRIMARY KEY (user_id, permission_id),
+    CONSTRAINT fk_user_permissions_user
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_permissions_permission
         FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE CASCADE
 ) ENGINE = InnoDB;
 

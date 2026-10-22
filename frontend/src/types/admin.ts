@@ -16,6 +16,7 @@ export type ManagedUser = {
   id: number;
   full_name: string;
   email: string;
+  username: string | null;
   is_active: boolean;
   created_at: string;
   role_id: number;

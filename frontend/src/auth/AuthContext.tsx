@@ -23,8 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     fetch(`${API_BASE_URL}/api/auth/me`, { credentials: 'include' })
       .then(async (response) => {
-        if (!response.ok) throw new Error('La sesión venció.');
-        return (await response.json()) as { user: AuthUser };
+        if (!response.ok) throw new Error('No se pudo verificar la sesión.');
+        return (await response.json()) as { user: AuthUser | null };
       })
       .then((payload) => {
         if (active) setUser(payload.user);
@@ -63,6 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authenticate('register', { full_name: fullName, email, password });
   }
 
+  async function refreshUser() {
+    const response = await fetch(`${API_BASE_URL}/api/auth/me`, { credentials: 'include' });
+    const payload = (await response.json()) as { user: AuthUser | null; detail?: string };
+    if (!response.ok) throw new Error(payload.detail || 'No se pudo actualizar la sesión.');
+    setUser(payload.user);
+  }
+
   async function logout() {
     try {
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
@@ -76,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, ready, login, register, logout }}>
+    <AuthContext.Provider value={{ user, ready, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

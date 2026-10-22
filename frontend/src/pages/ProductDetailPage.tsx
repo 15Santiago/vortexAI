@@ -12,13 +12,15 @@ export default function ProductDetailPage() {
   useEffect(() => {
     async function loadProduct() {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/productos`);
-        const payload = (await response.json()) as { productos?: Product[] };
-        const products = payload.productos ?? [];
-        const found = products.find((item) => item.id === id) ?? products[0] ?? null;
-        setProduct(found);
+        const response = await fetch(`${API_BASE_URL}/api/productos/${id}`, { credentials: 'include' });
+        if (!response.ok) {
+          throw new Error('No se pudo cargar el detalle del producto.');
+        }
+        const payload = (await response.json()) as { producto: Product };
+        setProduct(payload.producto);
       } catch (error) {
         console.error('Error al cargar detalle:', error);
+        setProduct(null);
       } finally {
         setLoading(false);
       }

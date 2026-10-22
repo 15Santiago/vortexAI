@@ -5,6 +5,7 @@ export type AuthUser = {
   full_name: string;
   email: string;
   is_admin: boolean;
+  can_view_audit: boolean;
 };
 
 export type AuthContextValue = {
@@ -13,6 +14,7 @@ export type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>;
   register: (fullName: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

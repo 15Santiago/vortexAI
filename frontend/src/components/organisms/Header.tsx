@@ -34,6 +34,11 @@ export default function Header() {
             Administración
           </NavLink>
         ) : null}
+        {user?.can_view_audit ? (
+          <NavLink to="/admin/logs" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
+            Auditoría
+          </NavLink>
+        ) : null}
         {user ? (
           <>
             <span className="header__user">{user.full_name}</span>

@@ -1,5 +1,27 @@
 import './FilterSidebar.css';
 
+const categoryLabels: Record<string, string> = {
+  Cameras: 'Cámaras',
+  'Chargers & Cables': 'Cargadores y cables',
+  Gaming: 'Videojuegos',
+  Headphones: 'Auriculares',
+  Laptops: 'Portátiles',
+  Networking: 'Redes',
+  'Other Electronics': 'Otros electrónicos',
+  Phones: 'Teléfonos',
+  'Power & Batteries': 'Energía y baterías',
+  'Printers & Scanners': 'Impresoras y escáneres',
+  'Smart Home': 'Hogar inteligente',
+  Speakers: 'Altavoces',
+  Storage: 'Almacenamiento',
+  'TV & Display': 'Televisores y pantallas',
+  Wearables: 'Relojes y dispositivos wearables',
+};
+
+function getCategoryLabel(category: string): string {
+  return categoryLabels[category] ?? category;
+}
+
 type FilterSidebarProps = {
   categories: string[];
   selectedCategory: string;
@@ -22,7 +44,7 @@ export default function FilterSidebar({
             checked={selectedCategory === 'all'}
             onChange={() => onSelectCategory('all')}
           />
-          <span>Todas</span>
+          <span>Todas las categorías</span>
         </label>
 
         {categories
@@ -35,7 +57,7 @@ export default function FilterSidebar({
                 checked={selectedCategory === category}
                 onChange={() => onSelectCategory(category)}
               />
-              <span>{category}</span>
+              <span>{getCategoryLabel(category)}</span>
             </label>
           ))}
       </div>

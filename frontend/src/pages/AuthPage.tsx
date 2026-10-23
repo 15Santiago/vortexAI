@@ -15,9 +15,30 @@ export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
   const destination = (location.state as { from?: string } | null)?.from || '/admin/dashboard';
 
+  // Expresiones regulares estrictas
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._-]).{12,}$/;
+
+  // Validaciones en tiempo real
+  const isEmailValid = emailRegex.test(email);
+  const isPasswordValid = passwordRegex.test(password);
+  const isFormValid = isRegister ? (isEmailValid && isPasswordValid && fullName.trim().length > 0) : true;
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
+
+    if (isRegister) {
+      if (!isEmailValid) {
+        setError('El correo electrónico contiene caracteres no permitidos o formato incorrecto.');
+        return;
+      }
+      if (!isPasswordValid) {
+        setError('La contraseña no cumple con los requisitos mínimos de seguridad.');
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       if (isRegister) await register(fullName, email, password);
@@ -67,23 +88,31 @@ export default function AuthPage() {
               />
             </label>
           ) : null}
+
           <label>
             {isRegister ? 'Correo electrónico' : 'Correo electrónico o usuario'}
             <input
               autoComplete={isRegister ? 'email' : 'username'}
               maxLength={254}
               required
-              type={isRegister ? 'email' : 'text'}
+              type="text"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder={isRegister ? 'nombre@correo.com' : 'admin o nombre@correo.com'}
             />
           </label>
+
+          {/* Mensaje de error en tiempo real para el correo */}
+          {isRegister && email.length > 0 && !isEmailValid && (
+            <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: '-0.5rem 0 0.5rem 0' }}>
+              No puedes usar caracteres raros o formato inválido (ej. usa @ y sin símbolos extraños).
+            </p>
+          )}
+
           <label>
             Contraseña
             <input
               autoComplete={isRegister ? 'new-password' : 'current-password'}
-              minLength={12}
               maxLength={72}
               required
               type="password"
@@ -92,8 +121,36 @@ export default function AuthPage() {
               placeholder={isRegister ? 'Al menos 12 caracteres' : 'Tu contraseña'}
             />
           </label>
+
+          {/* Guía visual de requisitos de contraseña */}
+          {isRegister && (
+            <ul className="password-requirements" style={{ fontSize: '0.8rem', listStyle: 'none', padding: 0, margin: '0.25rem 0 1rem 0' }}>
+              <li style={{ color: password.length >= 12 ? '#22c55e' : '#94a3b8' }}>
+                {password.length >= 12 ? '✓' : '•'} Mínimo 12 caracteres
+              </li>
+              <li style={{ color: /[A-Z]/.test(password) ? '#22c55e' : '#94a3b8' }}>
+                {/[A-Z]/.test(password) ? '✓' : '•'} Al menos una letra mayúscula
+              </li>
+              <li style={{ color: /[a-z]/.test(password) ? '#22c55e' : '#94a3b8' }}>
+                {/[a-z]/.test(password) ? '✓' : '•'} Al menos una letra minúscula
+              </li>
+              <li style={{ color: /\d/.test(password) ? '#22c55e' : '#94a3b8' }}>
+                {/\d/.test(password) ? '✓' : '•'} Al menos un número
+              </li>
+              <li style={{ color: /[@$!%*?&#._-]/.test(password) ? '#22c55e' : '#94a3b8' }}>
+                {/[@$!%*?&#._-]/.test(password) ? '✓' : '•'} Al menos un carácter especial (@$!%*?&#._-)
+              </li>
+            </ul>
+          )}
+
           {error ? <p className="auth-form__error" role="alert">{error}</p> : null}
-          <button className="auth-submit" type="submit" disabled={submitting}>
+
+          <button 
+            className="auth-submit" 
+            type="submit" 
+            disabled={submitting || !isFormValid}
+            style={{ opacity: (!isFormValid && isRegister) ? 0.6 : 1, cursor: (!isFormValid && isRegister) ? 'not-allowed' : 'pointer' }}
+          >
             {submitting ? 'Procesando...' : isRegister ? 'Crear cuenta' : 'Iniciar sesión'}
             <span aria-hidden="true">→</span>
           </button>

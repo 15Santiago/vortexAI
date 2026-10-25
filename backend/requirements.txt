@@ -4,3 +4,4 @@ mysql-connector-python
 bcrypt>=4.2,<6
 python-dotenv
 pydantic>=2.7,<3
+scikit-learn==1.9.1

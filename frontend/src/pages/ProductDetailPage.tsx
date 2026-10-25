@@ -18,6 +18,10 @@ export default function ProductDetailPage() {
         }
         const payload = (await response.json()) as { producto: Product };
         setProduct(payload.producto);
+        void fetch(`${API_BASE_URL}/api/historial/${payload.producto.id}`, {
+          method: 'POST',
+          credentials: 'include',
+        }).catch(() => undefined);
       } catch (error) {
         console.error('Error al cargar detalle:', error);
         setProduct(null);

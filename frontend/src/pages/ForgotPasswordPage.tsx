@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../data/api';
+import './ForgotPasswordPage.css';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');

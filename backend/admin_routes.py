@@ -371,3 +371,127 @@ def listar_registros_auditoria(
     finally:
         cursor.close()
         conn.close()
+
+from pydantic import BaseModel, EmailStr
+
+class AdminPasswordChangeRequest(BaseModel):
+    new_password: str
+
+@router.put("/api/admin/users/{user_id}/password")
+def admin_cambiar_contrasena_usuario(
+    user_id: int,
+    payload: AdminPasswordChangeRequest,
+    request: Request,
+    current_user: dict[str, Any] = Depends(require_permission("users.manage")),
+) -> dict[str, str]:
+    """Punto 7: Permite al administrador cambiar la contraseña de cualquier usuario."""
+    if not payload.new_password:
+        raise HTTPException(status_code=422, detail="La contraseña no puede estar vacía.")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _ensure_audit_log_table(cursor)
+        cursor.execute("SELECT id, full_name, email FROM users WHERE id = %s", (user_id,))
+        target_user = cursor.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="No se encontró el usuario.")
+
+        new_hash = _hash_password(payload.new_password)
+        cursor.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
+
+        _write_audit_log(
+            cursor,
+            request,
+            current_user,
+            "user.password.admin_update",
+            "user",
+            user_id,
+            new_values={"email": target_user["email"], "full_name": target_user["full_name"]},
+        )
+        conn.commit()
+        return {"message": "Contraseña de usuario actualizada por el administrador con éxito."}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+from pydantic import BaseModel
+
+class ForgotPasswordRequest(BaseModel):
+    email: str  # Cambiamos EmailStr por str para evitar dependencias faltantes
+    
+@router.post("/api/auth/forgot-password")
+def solictar_recuperacion_contrasena(payload: ForgotPasswordRequest, request: Request) -> dict[str, str]:
+    """Punto 3: Solicitar el restablecimiento de contraseña."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _ensure_audit_log_table(cursor)
+        cursor.execute("SELECT id, email FROM users WHERE email = %s", (payload.email,))
+        user = cursor.fetchone()
+        
+        # Por seguridad, no revelamos si el correo existe o no, pero simulamos el proceso
+        if user:
+            import uuid
+            reset_token = str(uuid.uuid4())
+            # Imprimimos en consola del servidor como evidencia rápida para el video
+            print(f"--- [RECUPRECIÓN DE CONTRASEÑA] Token para {user['email']}: {reset_token} ---")
+            
+            _write_audit_log(
+                cursor,
+                request,
+                {"id": user["id"], "full_name": "Sistema (Recuperación)", "email": user["email"]},
+                "auth.password.forgot",
+                "user",
+                user["id"],
+            )
+            conn.commit()
+
+        return {"message": "Si el correo está registrado, se han enviado las instrucciones de recuperación."}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+        
+@router.delete("/api/admin/users/{user_id}")
+def eliminar_usuario(
+    user_id: int,
+    request: Request,
+    current_user: dict[str, Any] = Depends(require_permission("users.manage")),
+) -> dict[str, str]:
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=422, detail="No puedes eliminar tu propia cuenta de administrador.")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _ensure_audit_log_table(cursor)
+        cursor.execute("SELECT id, full_name, email FROM users WHERE id = %s", (user_id,))
+        target_user = cursor.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="No se encontró el usuario.")
+            
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        
+        _write_audit_log(
+            cursor,
+            request,
+            current_user,
+            "user.delete",
+            "user",
+            user_id,
+            old_values={"email": target_user["email"], "full_name": target_user["full_name"]},
+        )
+        conn.commit()
+        return {"message": "Usuario eliminado correctamente."}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()

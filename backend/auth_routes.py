@@ -7,6 +7,8 @@ from mysql.connector import IntegrityError
 from auth_service import (
     AUTH_COOKIE_NAME,
     AccountRequest,
+    NAME_PATTERN,
+    _validate_password_strength,
     _create_session,
     _ensure_role_schema,
     _ensure_session_table,
@@ -29,11 +31,17 @@ router = APIRouter()
 def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, Any]:
     email = account.email.strip().lower()
     full_name = (account.full_name or "").strip()
-    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]{2,}", email):
         raise HTTPException(status_code=422, detail="Escribe un correo electrónico válido.")
     if not full_name:
         raise HTTPException(status_code=422, detail="Escribe tu nombre para crear la cuenta.")
-
+    if len(full_name) < 2 or not NAME_PATTERN.fullmatch(full_name):
+        raise HTTPException(
+            status_code=422,
+            detail="Escribe un nombre válido: solo letras, espacios, punto, apóstrofo o guion.",
+        )
+    _validate_password_strength(account.password)
+    
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:

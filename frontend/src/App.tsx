@@ -10,7 +10,9 @@ import HomePage from './pages/HomePage';
 import AuthPage from './pages/AuthPage';
 import { AuthProvider } from './auth/AuthContext';
 import AdminPage from './pages/AdminPage';
-import AuditLogsPage from './pages/AuditLogsPage';
+import AuditLogsPage from './pages/AuditLogsPage';  
+import ProfilePage from './pages/ProfilePage';
+
 
 export default function App() {
   return (
@@ -28,6 +30,7 @@ export default function App() {
             <Route path="/admin/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
             <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
             <Route path="/admin/logs" element={<RequireAuditAccess><AuditLogsPage /></RequireAuditAccess>} />
+            <Route path="/perfil" element={<ProfilePage />} />
           </Route>
         </Routes>
       </AuthProvider>

@@ -21,6 +21,8 @@ production_mode = os.getenv("APP_ENV", "development").lower() == "production"
 AUTH_SESSION_DAYS = 7
 AUTH_COOKIE_NAME = "vortexai_session"
 AUTH_FAILURE_LIMIT = 5
+AUTH_IDLE_MINUTES = max(1, int(os.getenv("AUTH_IDLE_MINUTES", "30")))
+_session_activity_column_ready = False
 _audit_log_table_ready = False
 _audit_log_table_lock = threading.Lock()
 _user_permission_schema_ready = False
@@ -115,6 +117,7 @@ def _verify_password(password: str, stored_hash: str) -> bool:
 
 
 def _ensure_session_table(cursor) -> None:
+    global _session_activity_column_ready
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS user_sessions (
@@ -122,6 +125,7 @@ def _ensure_session_table(cursor) -> None:
             user_id BIGINT UNSIGNED NOT NULL,
             expires_at DATETIME NOT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_activity_at DATETIME NULL,
             CONSTRAINT fk_user_sessions_user
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
             INDEX idx_user_sessions_expiry (expires_at)
@@ -139,7 +143,19 @@ def _ensure_session_table(cursor) -> None:
         ) ENGINE = InnoDB
         """
     )
-
+    if not _session_activity_column_ready:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = 'user_sessions'
+              AND column_name = 'last_activity_at'
+            """
+        )
+        if cursor.fetchone()["total"] == 0:
+            cursor.execute("ALTER TABLE user_sessions ADD COLUMN last_activity_at DATETIME NULL")
+        _session_activity_column_ready = True
 
 def _ensure_audit_log_table(cursor) -> None:
     global _audit_log_table_ready
@@ -340,7 +356,10 @@ def _create_session(cursor, user_id: int) -> str:
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=AUTH_SESSION_DAYS)
     cursor.execute(
-        "INSERT INTO user_sessions (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
+        """
+        INSERT INTO user_sessions (token_hash, user_id, expires_at, last_activity_at)
+        VALUES (%s, %s, %s, UTC_TIMESTAMP())
+        """,
         (token_hash, user_id, expires_at),
     )
     return token
@@ -389,6 +408,7 @@ def get_current_user(session_cookie: str | None = Cookie(default=None, alias=AUT
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
+        _ensure_session_table(cursor)
         _ensure_user_permission_schema(cursor)
         conn.commit()
         cursor.execute(
@@ -410,13 +430,27 @@ def get_current_user(session_cookie: str | None = Cookie(default=None, alias=AUT
             FROM user_sessions s
             JOIN users u ON u.id = s.user_id
             JOIN roles r ON r.id = u.role_id
-            WHERE s.token_hash = %s AND s.expires_at > UTC_TIMESTAMP() AND u.is_active = TRUE
+            WHERE s.token_hash = %s
+              AND s.expires_at > UTC_TIMESTAMP()
+              AND u.is_active = TRUE
+              AND (
+                  s.last_activity_at IS NULL
+                  OR s.last_activity_at > UTC_TIMESTAMP() - INTERVAL %s MINUTE
+              )
             """,
-            (token_hash,),
+            (token_hash, AUTH_IDLE_MINUTES),
         )
         user = cursor.fetchone()
         if not user:
-            raise HTTPException(status_code=401, detail="La sesión venció. Inicia sesión de nuevo.")
+            raise HTTPException(
+                status_code=401,
+                detail="La sesión venció por inactividad o ya no es válida. Inicia sesión de nuevo.",
+            )
+        cursor.execute(
+            "UPDATE user_sessions SET last_activity_at = UTC_TIMESTAMP() WHERE token_hash = %s",
+            (token_hash,),
+        )
+        conn.commit()
         return user
     finally:
         cursor.close()
@@ -507,4 +541,17 @@ def _secure_cookie_enabled() -> bool:
         or production_mode
     )
 
+NAME_PATTERN = re.compile(r"^[^\W\d_]+(?:[ '.\-][^\W\d_]+)*$")
 
+
+def _validate_password_strength(password: str) -> None:
+    if any(character.isspace() for character in password):
+        raise HTTPException(status_code=422, detail="La contraseña no puede tener espacios.")
+    if not any(character.isupper() for character in password):
+        raise HTTPException(status_code=422, detail="La contraseña debe incluir una letra mayúscula.")
+    if not any(character.islower() for character in password):
+        raise HTTPException(status_code=422, detail="La contraseña debe incluir una letra minúscula.")
+    if not any(character.isdigit() for character in password):
+        raise HTTPException(status_code=422, detail="La contraseña debe incluir un número.")
+    if not any(not character.isalnum() and not character.isspace() for character in password):
+        raise HTTPException(status_code=422, detail="La contraseña debe incluir un símbolo (por ejemplo ! @ # $ %).")

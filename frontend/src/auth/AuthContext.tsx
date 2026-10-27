@@ -70,6 +70,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(payload.user);
   }
 
+  async function updateProfile(fullName: string, email: string, password?: string) {
+    const bodyData: Record<string, string> = { full_name: fullName, email };
+    if (password) {
+      bodyData.password = password;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyData),
+    });
+
+    const payload = (await response.json()) as { user?: AuthUser; detail?: string };
+    if (!response.ok) {
+      throw new Error(payload.detail || 'No se pudo actualizar el perfil.');
+    }
+
+    if (payload.user) {
+      setUser(payload.user);
+    } else {
+      await refreshUser();
+    }
+  }
+
   async function logout() {
     try {
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
@@ -83,8 +108,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, ready, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, ready, login, register, logout, refreshUser, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
 }
+

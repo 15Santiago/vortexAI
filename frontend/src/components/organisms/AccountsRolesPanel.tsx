@@ -19,6 +19,7 @@ type AccountsRolesPanelProps = {
   onClosePermissions: () => void;
   onUserPermissionChange: (permissionName: string, checked: boolean) => void;
   onSaveUserPermissions: (user: ManagedUser) => void;
+  onDeleteUser: (user: ManagedUser) => void;
 };
 
 export default function AccountsRolesPanel({
@@ -39,6 +40,7 @@ export default function AccountsRolesPanel({
   onClosePermissions,
   onUserPermissionChange,
   onSaveUserPermissions,
+  onDeleteUser,
 }: AccountsRolesPanelProps) {
   return (
     <section className="admin-panel admin-panel--users">
@@ -90,14 +92,31 @@ export default function AccountsRolesPanel({
                     Aplicar
                   </button>
                 </div>
-                <button
-                  className="admin-button admin-button--secondary"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => editingUserId === user.id ? onClosePermissions() : onEditUserPermissions(user)}
-                >
-                  {editingUserId === user.id ? 'Cerrar permisos' : 'Editar permisos'}
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    className="admin-button admin-button--secondary"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => editingUserId === user.id ? onClosePermissions() : onEditUserPermissions(user)}
+                  >
+                    {editingUserId === user.id ? 'Cerrar permisos' : 'Editar permisos'}
+                  </button>
+                  <button
+                    className="admin-button"
+                    type="button"
+                    disabled={saving || user.id === currentUserId}
+                    onClick={() => onDeleteUser(user)}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#f87171',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      cursor: user.id === currentUserId ? 'not-allowed' : 'pointer',
+                      opacity: user.id === currentUserId ? 0.5 : 1,
+                    }}
+                  >
+                    Eliminar
+                  </button>
+                </div>
               </div>
               {editingUserId === user.id ? (
                 <div className="admin-user-permissions">

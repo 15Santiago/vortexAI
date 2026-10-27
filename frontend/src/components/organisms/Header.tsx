@@ -41,7 +41,9 @@ export default function Header() {
         ) : null}
         {user ? (
           <>
-            <span className="header__user">{user.full_name}</span>
+            <NavLink to="/perfil" className={({ isActive }) => (isActive ? 'header__link header__link--active header__user' : 'header__link header__user')}>
+              {user.full_name}
+            </NavLink>
             <button className="header__account-action" type="button" onClick={() => void handleLogout()}>Salir</button>
           </>
         ) : (

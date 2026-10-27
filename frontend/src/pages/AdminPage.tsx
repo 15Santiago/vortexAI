@@ -157,6 +157,37 @@ export default function AdminPage() {
     }
   }
 
+  async function deleteUser(user: ManagedUser) {
+    if (user.id === currentAdmin?.id) {
+      setError('No puedes eliminar tu propia cuenta de administrador.');
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar al usuario ${user.email}?`)) return;
+
+    setError('');
+    setNotice('');
+    setSaving(true);
+    try {
+      await adminRequest(`/api/admin/users/${user.id}`, {
+        method: 'DELETE',
+      });
+      
+      setUsers((current) => current.filter((item) => item.id !== user.id));
+      setRoles((current) => current.map((role) => {
+        if (role.name === user.role_name) {
+          return { ...role, user_count: Math.max(0, role.user_count - 1) };
+        }
+        return role;
+      }));
+
+      setNotice(`Usuario ${user.email} eliminado correctamente.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar el usuario.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <main className="admin-page">
       <header className="admin-heading">
@@ -200,6 +231,7 @@ export default function AdminPage() {
                 : current.filter((name) => name !== permissionName)
             ))}
             onSaveUserPermissions={(user) => void saveUserPermissions(user)}
+            onDeleteUser={(user) => void deleteUser(user)}
           />
         </>
       )}

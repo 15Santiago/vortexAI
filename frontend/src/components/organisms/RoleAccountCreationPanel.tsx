@@ -34,14 +34,42 @@ export default function RoleAccountCreationPanel({
   onCreate,
 }: RoleAccountCreationPanelProps) {
   const [formData, setFormData] = useState(emptyForm);
+  const [passwordError, setPasswordError] = useState('');
+
+  // Validar requisitos de contraseña estrictos
+  function validatePassword(password: string): string {
+    if (password.length < 12) return 'Debe tener al menos 12 caracteres.';
+    if (!/[A-Z]/.test(password)) return 'Debe contener al menos una letra mayúscula.';
+    if (!/[a-z]/.test(password)) return 'Debe contener al menos una letra minúscula.';
+    if (!/[0-9]/.test(password)) return 'Debe contener al menos un número.';
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return 'Debe contener al menos un carácter especial.';
+    return '';
+  }
 
   function updateField(field: keyof Omit<RoleAccountFormData, 'permission_names'>, value: string) {
-    setFormData((current) => ({ ...current, [field]: value }));
+    setFormData((current) => {
+      const updated = { ...current, [field]: value };
+      if (field === 'staff_password') {
+        setPasswordError(validatePassword(value));
+      }
+      return updated;
+    });
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (await onCreate(formData)) setFormData(emptyForm);
+    
+    // Validación final antes de enviar
+    const pwdError = validatePassword(formData.staff_password);
+    if (pwdError) {
+      setPasswordError(pwdError);
+      return;
+    }
+
+    if (await onCreate(formData)) {
+      setFormData(emptyForm);
+      setPasswordError('');
+    }
   }
 
   function togglePermission(name: string, checked: boolean) {
@@ -119,14 +147,23 @@ export default function RoleAccountCreationPanel({
             <input
               required
               type="password"
-              minLength={12}
+
               maxLength={72}
               autoComplete="new-password"
               value={formData.staff_password}
               onChange={(event) => updateField('staff_password', event.target.value)}
             />
           </label>
-          <button className="admin-button admin-button--primary" type="submit" disabled={saving}>
+          {passwordError && (
+            <p style={{ color: '#f87171', fontSize: '0.85rem', margin: '-10px 0 10px 0' }}>
+              ⚠️ {passwordError}
+            </p>
+          )}
+          <button 
+            className="admin-button admin-button--primary" 
+            type="submit" 
+            disabled={saving || Boolean(passwordError)}
+          >
             Crear rol y cuenta <span aria-hidden="true">+</span>
           </button>
         </div>

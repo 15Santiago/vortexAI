@@ -40,7 +40,12 @@ FILAS = [
 class RetellFalso:
     def __init__(self):
         self._real = Retell(api_key=CLAVE)
-        self.call = SimpleNamespace(create_web_call=lambda **kw: SimpleNamespace(access_token="token_falso", call_id="call_1"))
+        servidor_ice = SimpleNamespace(model_dump=lambda **kw: {"urls": ["turn:turn.ejemplo.com:3478"], "username": "u", "credential": "c"})
+        self.call = SimpleNamespace(
+            create_web_call=lambda **kw: SimpleNamespace(
+                access_token="token_falso", call_id="call_1", transport="gateway", ice_servers=[servidor_ice]
+            )
+        )
 
     def verify(self, cuerpo, clave, firma):
         return self._real.verify(cuerpo, clave, firma)
@@ -118,7 +123,10 @@ def test_catalogo_caido_devuelve_error_legible(entorno, monkeypatch):
 def test_crear_llamada_codigo(entorno):
     assert entorno.post("/api/crear-llamada", json={"codigo": "mal"}).status_code == 401
     ok = entorno.post("/api/crear-llamada", json={"codigo": "codigo-secreto"})
-    assert ok.status_code == 200 and ok.json() == {"access_token": "token_falso", "call_id": "call_1"}
+    cuerpo = ok.json()
+    assert ok.status_code == 200
+    assert cuerpo["access_token"] == "token_falso" and cuerpo["call_id"] == "call_1" and cuerpo["transport"] == "gateway"
+    assert cuerpo["ice_servers"] == [{"urls": ["turn:turn.ejemplo.com:3478"], "username": "u", "credential": "c"}]
 
 
 def test_crear_llamada_limita_intentos(entorno):
@@ -163,3 +171,15 @@ def test_ofertas_por_tipo_de_producto(entorno):
     r = _firmado(entorno, "/retell/mejores-ofertas", {"consulta": "audífonos"}).json()
     assert r["resultados"] and all(x["id"] in {1, 2, 4} for x in r["resultados"])
     assert r["resultados"][0]["id"] == 1  # el de mayor descuento con reseñas suficientes
+
+
+def test_llamadas_correctas_no_consumen_el_limite_por_ip(entorno, monkeypatch):
+    monkeypatch.setattr(main, "MAX_CALLS_PER_HOUR", 100)
+    for _ in range(main.MAX_ATTEMPTS_PER_10_MIN + 3):
+        assert entorno.post("/api/crear-llamada", json={"codigo": "codigo-secreto"}).status_code == 200
+
+
+def test_la_pagina_pasa_al_sdk_todos_los_datos_de_la_llamada(entorno):
+    html = entorno.get("/asistente").text
+    for campo in ("accessToken: llamada.access_token", "callId: llamada.call_id", "transport: llamada.transport", "iceServers: llamada.ice_servers"):
+        assert campo in html

@@ -41,7 +41,7 @@ RETELL_AGENT_ID = os.getenv("RETELL_AGENT_ID", "")
 ACCESS_CODE = os.getenv("ACCESS_CODE", "")
 SKIP_SIGNATURE = os.getenv("DEV_SKIP_SIGNATURE", "false").lower() == "true" and not PRODUCTION
 MAX_CALLS_PER_HOUR = int(os.getenv("MAX_CALLS_PER_HOUR", "30"))
-MAX_ATTEMPTS_PER_10_MIN = 8
+MAX_ATTEMPTS_PER_10_MIN = int(os.getenv("MAX_FAILED_ATTEMPTS_PER_10_MIN", "8"))  # códigos incorrectos por IP
 
 if PRODUCTION and not (RETELL_API_KEY and RETELL_AGENT_ID and ACCESS_CODE):
     raise RuntimeError("En producción deben estar definidas RETELL_API_KEY, RETELL_AGENT_ID y ACCESS_CODE.")
@@ -152,18 +152,21 @@ def _ip_cliente(request: Request) -> str:
     return request.client.host if request.client else "desconocida"
 
 
-def _permitir_intento(ip: str) -> bool:
+def _ip_bloqueada(ip: str) -> bool:
+    """True si esta IP ya acumuló demasiados códigos incorrectos en los últimos 10 minutos."""
     ahora = time.time()
     with _candado:
-        if len(_intentos) > 10_000:
-            _intentos.clear()
         cola = _intentos[ip]
         while cola and ahora - cola[0] > 600:
             cola.popleft()
-        if len(cola) >= MAX_ATTEMPTS_PER_10_MIN:
-            return False
-        cola.append(ahora)
-        return True
+        return len(cola) >= MAX_ATTEMPTS_PER_10_MIN
+
+
+def _registrar_fallo(ip: str) -> None:
+    with _candado:
+        if len(_intentos) > 10_000:
+            _intentos.clear()
+        _intentos[ip].append(time.time())
 
 
 def _hay_cupo_de_llamadas() -> bool:
@@ -182,10 +185,12 @@ class SolicitudLlamada(BaseModel):
 
 
 @app.post("/api/crear-llamada")
-def crear_llamada(datos: SolicitudLlamada, request: Request) -> dict[str, str]:
-    if not _permitir_intento(_ip_cliente(request)):
-        raise HTTPException(status_code=429, detail="Demasiados intentos. Espera unos minutos.")
+def crear_llamada(datos: SolicitudLlamada, request: Request) -> dict[str, Any]:
+    ip = _ip_cliente(request)
+    if _ip_bloqueada(ip):
+        raise HTTPException(status_code=429, detail="Demasiados códigos incorrectos. Espera unos minutos.")
     if not ACCESS_CODE or not hmac.compare_digest(datos.codigo.encode(), ACCESS_CODE.encode()):
+        _registrar_fallo(ip)
         raise HTTPException(status_code=401, detail="Código de acceso incorrecto.")
     if not _hay_cupo_de_llamadas():
         raise HTTPException(status_code=429, detail="Se alcanzó el límite de llamadas por hora. Intenta más tarde.")
@@ -194,7 +199,13 @@ def crear_llamada(datos: SolicitudLlamada, request: Request) -> dict[str, str]:
     except Exception:  # noqa: BLE001
         log.exception("Retell no pudo crear la llamada web")
         raise HTTPException(status_code=502, detail="No se pudo iniciar la llamada. Intenta de nuevo.") from None
-    return {"access_token": llamada.access_token, "call_id": llamada.call_id}
+    # Retell (API v3) conecta por "gateway": el navegador necesita también call_id, transport e ice_servers.
+    return {
+        "access_token": llamada.access_token,
+        "call_id": llamada.call_id,
+        "transport": llamada.transport,
+        "ice_servers": [servidor.model_dump(exclude_none=True) for servidor in llamada.ice_servers],
+    }
 
 
 # ---------------------------------------------------------------- webhook de fin de llamada (opcional)

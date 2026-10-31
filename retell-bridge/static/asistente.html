@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vortex · asistente de voz de vortexAI</title>
+  <style>
+    :root {
+      --fondo: #0b1522;
+      --superficie: #101e33;
+      --borde: #1f3354;
+      --texto: #edf3fa;
+      --suave: #94a3b8;
+      --acento: #38bdf8;
+      --acento-2: #8bddd3;
+      --error: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--fondo);
+      color: var(--texto);
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      line-height: 1.5;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+    }
+    main { width: 100%; max-width: 520px; display: grid; gap: 24px; justify-items: center; text-align: center; }
+    h1 { margin: 0; font-size: clamp(2rem, 6vw, 2.75rem); font-weight: 650; letter-spacing: -0.02em; }
+    .intro { margin: 8px 0 0; color: var(--suave); max-width: 40ch; margin-inline: auto; }
+    .acceso { display: grid; gap: 6px; width: min(100%, 280px); text-align: left; }
+    .acceso label { font-size: 0.9rem; color: var(--suave); }
+    .acceso input {
+      width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--borde);
+      background: var(--superficie); color: var(--texto); font: inherit;
+    }
+    .acceso input::placeholder { color: #5b6b86; }
+    .orbe {
+      position: relative; width: 148px; height: 148px; border-radius: 50%; border: 0; cursor: pointer;
+      background: var(--acento); color: var(--fondo); display: grid; place-items: center;
+      transition: transform 0.15s ease, background 0.2s ease;
+    }
+    .orbe:hover:not(:disabled) { transform: scale(1.03); }
+    .orbe:disabled { cursor: progress; background: #2a4466; color: var(--suave); }
+    .orbe svg { width: 52px; height: 52px; }
+    .orbe.en-llamada { background: var(--acento-2); }
+    .orbe.habla { animation: onda 1.4s ease-out infinite; }
+    @keyframes onda {
+      0% { box-shadow: 0 0 0 0 rgba(139, 221, 211, 0.55); }
+      100% { box-shadow: 0 0 0 34px rgba(139, 221, 211, 0); }
+    }
+    :focus-visible { outline: 3px solid var(--texto); outline-offset: 4px; }
+    .estado { min-height: 1.5em; margin: 0; color: var(--texto); }
+    .estado.error { color: var(--error); }
+    .transcripcion {
+      width: 100%; max-height: 38vh; overflow-y: auto; text-align: left; display: grid; gap: 10px;
+      padding: 0; margin: 0; list-style: none;
+    }
+    .transcripcion:empty { display: none; }
+    .transcripcion li { background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 10px 14px; }
+    .transcripcion .quien { display: block; font-size: 0.8rem; color: var(--suave); margin-bottom: 2px; }
+    .transcripcion .agente { border-color: #285a6e; }
+    .pie { margin: 0; font-size: 0.85rem; color: var(--suave); max-width: 44ch; }
+    @media (prefers-reduced-motion: reduce) { .orbe, .orbe.habla { animation: none; transition: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Vortex</h1>
+      <p class="intro">Habla con el asistente de voz de vortexAI para encontrar productos de electrónica, ver ofertas o comparar opciones.</p>
+    </header>
+
+    <div class="acceso" id="acceso">
+      <label for="codigo">Código de acceso</label>
+      <input id="codigo" type="password" autocomplete="off" placeholder="Escríbelo y pulsa el botón">
+    </div>
+
+    <button class="orbe" id="orbe" type="button" aria-label="Hablar con Vortex">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="3" width="6" height="12" rx="3"></rect>
+        <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path>
+      </svg>
+    </button>
+
+    <p class="estado" id="estado" role="status" aria-live="polite">Pulsa el botón y habla con Vortex.</p>
+    <ul class="transcripcion" id="transcripcion" aria-live="polite"></ul>
+    <p class="pie">Necesitas permitir el micrófono en el navegador. La conversación se corta sola a los pocos minutos.</p>
+  </main>
+
+  <script src="/static/retell-client.js"></script>
+  <script>
+    const orbe = document.getElementById("orbe");
+    const estado = document.getElementById("estado");
+    const acceso = document.getElementById("acceso");
+    const codigo = document.getElementById("codigo");
+    const lista = document.getElementById("transcripcion");
+    const cliente = new RetellWebClient();
+    let enLlamada = false;
+
+    function mostrar(texto, esError) {
+      estado.textContent = texto;
+      estado.classList.toggle("error", Boolean(esError));
+    }
+
+    function reposo(texto, esError) {
+      enLlamada = false;
+      orbe.disabled = false;
+      orbe.classList.remove("en-llamada", "habla");
+      orbe.setAttribute("aria-label", "Hablar con Vortex");
+      acceso.hidden = false;
+      mostrar(texto, esError);
+    }
+
+    function pintarTranscripcion(mensajes) {
+      lista.replaceChildren();
+      for (const m of (mensajes || []).slice(-8)) {
+        if (!m.content) continue;
+        const li = document.createElement("li");
+        const quien = document.createElement("span");
+        quien.className = "quien";
+        quien.textContent = m.role === "agent" ? "Vortex" : "Tú";
+        li.className = m.role === "agent" ? "agente" : "";
+        li.append(quien, m.content);
+        lista.append(li);
+      }
+      lista.scrollTop = lista.scrollHeight;
+    }
+
+    cliente.on("call_started", () => {
+      enLlamada = true;
+      orbe.disabled = false;
+      orbe.classList.add("en-llamada");
+      orbe.setAttribute("aria-label", "Terminar la llamada");
+      acceso.hidden = true;
+      mostrar("Te escucho. Pulsa el botón para terminar.");
+    });
+    cliente.on("call_ended", () => reposo("Llamada terminada. Puedes iniciar otra."));
+    cliente.on("agent_start_talking", () => { orbe.classList.add("habla"); mostrar("Vortex está hablando…"); });
+    cliente.on("agent_stop_talking", () => { orbe.classList.remove("habla"); if (enLlamada) mostrar("Te escucho."); });
+    cliente.on("update", (u) => pintarTranscripcion(u.transcript));
+    cliente.on("error", () => { cliente.stopCall(); reposo("Se perdió la conexión con el asistente. Intenta de nuevo.", true); });
+
+    orbe.addEventListener("click", async () => {
+      if (enLlamada) { cliente.stopCall(); return; }
+      const valor = codigo.value.trim();
+      if (!valor) { mostrar("Escribe el código de acceso.", true); codigo.focus(); return; }
+
+      orbe.disabled = true;
+      lista.replaceChildren();
+      mostrar("Conectando…");
+      try {
+        const r = await fetch("/api/crear-llamada", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ codigo: valor }),
+        });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          throw new Error(typeof e.detail === "string" ? e.detail : "No se pudo iniciar la llamada.");
+        }
+        const { access_token } = await r.json();
+        await cliente.startCall({ accessToken: access_token });
+      } catch (err) {
+        const sinMicrofono = err && (err.name === "NotAllowedError" || /permission|denied/i.test(String(err.message)));
+        reposo(sinMicrofono ? "Permite el micrófono en el navegador y vuelve a intentarlo." : (err.message || "No se pudo iniciar la llamada."), true);
+      }
+    });
+  </script>
+</body>
+</html>

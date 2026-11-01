@@ -158,6 +158,62 @@ def obtener_usuario_actual(
     return {"user": _public_user(user) if user else None}
 
 
+@router.put("/api/auth/profile")
+def actualizar_perfil(
+    account: AccountRequest, 
+    user: dict[str, Any] = Depends(get_current_user)
+) -> dict[str, Any]:
+    email = account.email.strip().lower()
+    full_name = (account.full_name or "").strip()
+    
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]{2,}", email):
+        raise HTTPException(status_code=422, detail="Escribe un correo electrónico válido.")
+    if not full_name:
+        raise HTTPException(status_code=422, detail="Escribe tu nombre completo.")
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            UPDATE users 
+            SET email = %s, full_name = %s 
+            WHERE id = %s
+            """,
+            (email, full_name, user["id"])
+        )
+        conn.commit()
+        
+        if account.password:
+            _validate_password_strength(account.password)
+            cursor.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (_hash_password(account.password), user["id"])
+            )
+            conn.commit()
+
+        cursor.execute(
+            """
+            SELECT u.id, u.full_name, u.email, u.is_active, u.role_id, r.name AS role_name 
+            FROM users u JOIN roles r ON r.id = u.role_id 
+            WHERE u.id = %s
+            """, 
+            (user["id"],)
+        )
+        updated_user = cursor.fetchone()
+        
+        return {"user": _public_user(updated_user)}
+    except IntegrityError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="El correo ya está en uso por otra cuenta.") from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @router.post("/api/auth/logout")
 def cerrar_sesion(response: Response, user: dict[str, Any] = Depends(get_current_user)) -> dict[str, str]:
     conn = get_db_connection()
@@ -176,4 +232,5 @@ def cerrar_sesion(response: Response, user: dict[str, Any] = Depends(get_current
     finally:
         cursor.close()
         conn.close()
-
+        
+        

@@ -12,6 +12,14 @@ from retell.lib.webhook_auth import symmetric
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import catalogo  # noqa: E402
 import main  # noqa: E402
+from scripts.registrar_funciones import (  # noqa: E402
+    PROMPT_MARKER,
+    TOOL_SCHEMAS,
+    _agent_create_payload,
+    _llm_create_payload,
+    _prompt_with_screen_instructions,
+    _tool_payload,
+)
 
 CLAVE = "key_de_prueba"
 
@@ -61,11 +69,13 @@ def entorno(monkeypatch):
     monkeypatch.setattr(main, "_retell", RetellFalso())
     main._intentos.clear()
     main._llamadas.clear()
+    main._acciones_por_llamada.clear()
     return TestClient(main.app)
 
 
-def _firmado(cliente, ruta, args):
-    cuerpo = json.dumps({"name": "x", "call": {}, "args": args}, separators=(",", ":"), ensure_ascii=False)
+def _firmado(cliente, ruta, args, call_id=None):
+    llamada = {"call_id": call_id} if call_id else {}
+    cuerpo = json.dumps({"name": "x", "call": llamada, "args": args}, separators=(",", ":"), ensure_ascii=False)
     firma = symmetric["sign"](cuerpo, CLAVE)
     return cliente.post(ruta, content=cuerpo.encode(), headers={"x-retell-signature": firma, "content-type": "application/json"})
 
@@ -76,6 +86,41 @@ def test_busqueda_en_espanol_traduce(entorno):
     assert r["coincidencia"] == "exacta"
     assert any("AirPods" in n for n in nombres) and any("Sony" in n for n in nombres)
     assert all("Charger" not in n for n in nombres)
+
+
+def test_busqueda_encola_accion_para_catalogo_y_respeta_cursor(entorno):
+    llamada = "call-search-1"
+    respuesta = _firmado(
+        entorno,
+        "/retell/buscar-productos",
+        {"consulta": "airpods"},
+        call_id=llamada,
+    )
+    assert respuesta.status_code == 200
+    accion = entorno.get(f"/api/acciones/{llamada}").json()
+    assert accion["ultimo"] == 1
+    assert accion["acciones"] == [{
+        "id": 1,
+        "tipo": "mostrar_productos",
+        "ruta": "/catalogo",
+        "ids": [1],
+        "consulta": "airpods",
+    }]
+    siguiente = entorno.get(f"/api/acciones/{llamada}?desde=1").json()
+    assert siguiente == {"acciones": [], "ultimo": 1}
+    assert entorno.get("/api/acciones/call-unknown").status_code == 404
+
+
+def test_busqueda_sin_resultados_tambien_encola_catalogo_vacio(entorno):
+    respuesta = _firmado(
+        entorno,
+        "/retell/buscar-productos",
+        {"consulta": "lavadora"},
+        call_id="call-empty",
+    ).json()
+    assert respuesta["total_encontrados"] == 0
+    accion = entorno.get("/api/acciones/call-empty").json()["acciones"][0]
+    assert accion["tipo"] == "mostrar_productos" and accion["ids"] == []
 
 
 def test_filtro_de_precio_y_orden(entorno):
@@ -100,9 +145,165 @@ def test_detalle_y_no_encontrado(entorno):
     assert "error" in _firmado(entorno, "/retell/detalle-producto", {"id": 999}).json()
 
 
+def test_detalle_producto_encola_navegacion_solo_si_existe(entorno):
+    llamada = "call-detail"
+    _firmado(entorno, "/retell/detalle-producto", {"id": 3}, call_id=llamada)
+    acciones = entorno.get(f"/api/acciones/{llamada}").json()["acciones"]
+    assert acciones == [{
+        "id": 1,
+        "tipo": "abrir_producto",
+        "ruta": "/producto/3",
+        "producto_id": 3,
+    }]
+
+    _firmado(entorno, "/retell/detalle-producto", {"id": 999}, call_id=llamada)
+    assert entorno.get(f"/api/acciones/{llamada}").json()["ultimo"] == 1
+
+
 def test_mejores_ofertas_respeta_minimos(entorno):
     r = _firmado(entorno, "/retell/mejores-ofertas", {}).json()
     assert [x["id"] for x in r["resultados"]][0] == 1  # 35 % de descuento, el mayor con buenas reseñas
+
+
+def test_mejores_ofertas_encola_resultados(entorno):
+    _firmado(
+        entorno,
+        "/retell/mejores-ofertas",
+        {"consulta": "audífonos"},
+        call_id="call-deals",
+    )
+    accion = entorno.get("/api/acciones/call-deals").json()["acciones"][0]
+    assert accion["tipo"] == "mostrar_productos"
+    assert accion["ids"][0] == 1
+
+
+@pytest.mark.parametrize(
+    ("seccion", "ruta"),
+    [
+        ("inicio", "/"),
+        ("catalogo", "/catalogo"),
+        ("metricas", "/admin/dashboard"),
+        ("perfil", "/perfil"),
+    ],
+)
+def test_navegar_a_secciones(entorno, seccion, ruta):
+    respuesta = _firmado(entorno, "/retell/navegar", {"seccion": seccion})
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"accion": "navegar", "destino": seccion, "ruta": ruta}
+
+
+def test_navegar_a_producto_y_rechazar_argumento_invalido(entorno):
+    producto = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": 42}
+    ).json()
+    invalido = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": -1}
+    ).json()
+    decimal = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": 42.5}
+    ).json()
+    assert producto["ruta"] == "/producto/42"
+    assert "error" in invalido
+    assert "error" in decimal
+    assert "error" in _firmado(entorno, "/retell/navegar", {"seccion": "desconocida"}).json()
+
+
+def test_navegar_encola_accion_de_pantalla(entorno):
+    llamada = "call-navigation"
+    respuesta = _firmado(
+        entorno,
+        "/retell/navegar",
+        {"seccion": "producto", "producto_id": 42},
+        call_id=llamada,
+    )
+    assert respuesta.json()["ruta"] == "/producto/42"
+    assert entorno.get(f"/api/acciones/{llamada}").json()["acciones"] == [{
+        "id": 1,
+        "tipo": "ir_a",
+        "ruta": "/producto/42",
+        "destino": "producto",
+        "producto_id": 42,
+    }]
+
+
+def test_navegar_acepta_destino_y_encola_perfil(entorno):
+    llamada = "call-profile"
+    respuesta = _firmado(
+        entorno,
+        "/retell/navegar",
+        {"destino": "perfil"},
+        call_id=llamada,
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {
+        "accion": "navegar",
+        "destino": "perfil",
+        "ruta": "/perfil",
+    }
+    assert entorno.get(f"/api/acciones/{llamada}").json()["acciones"] == [{
+        "id": 1,
+        "tipo": "ir_a",
+        "ruta": "/perfil",
+        "destino": "perfil",
+    }]
+
+
+def test_esquemas_de_registro_incluyen_endpoints_y_prompt_idempotente():
+    herramientas = [_tool_payload(schema, "https://bridge.example") for schema in TOOL_SCHEMAS]
+    assert [tool["name"] for tool in herramientas] == [
+        "buscar_productos",
+        "detalle_producto",
+        "mejores_ofertas",
+        "navegar",
+    ]
+    assert all(tool["method"] == "POST" and tool["speak_during_execution"] for tool in herramientas)
+    assert all(tool["args_at_root"] is False for tool in herramientas)
+    assert herramientas[0]["url"] == "https://bridge.example/retell/buscar-productos"
+    assert herramientas[3]["url"] == "https://bridge.example/retell/navegar"
+    prompt = _prompt_with_screen_instructions("Prompt existente.")
+    assert PROMPT_MARKER in prompt
+    assert "no llames end_call" in prompt
+    assert "mantén la llamada abierta" in prompt
+    assert _prompt_with_screen_instructions(prompt) == prompt
+    stale_prompt = prompt.replace(
+        "Después de cada herramienta, responde en voz alta con el resultado y sigue la conversación: no te quedes callado, no llames end_call y mantén la llamada abierta para escuchar la siguiente petición.",
+        "Después de cada herramienta, continúa la conversación.",
+    )
+    updated_prompt = _prompt_with_screen_instructions(stale_prompt)
+    assert "no te quedes callado, no llames end_call" in updated_prompt
+    assert "Después de cada herramienta, continúa la conversación." not in updated_prompt
+    assert _prompt_with_screen_instructions(updated_prompt) == updated_prompt
+    clone_payload = _llm_create_payload(
+        {
+            "llm_id": "published-llm",
+            "version": 4,
+            "is_published": True,
+            "model": "gpt-4.1",
+            "model_config": {"type": "cascading"},
+        },
+        herramientas,
+        updated_prompt,
+    )
+    assert clone_payload["model"] == "gpt-4.1"
+    assert clone_payload["model_config"] == {"type": "cascading"}
+    assert clone_payload["general_tools"] == herramientas
+    assert clone_payload["general_prompt"] == updated_prompt
+    assert "llm_id" not in clone_payload and "version" not in clone_payload
+    agent_payload = _agent_create_payload(
+        {
+            "agent_id": "published-agent",
+            "agent_name": "Vortex",
+            "version": 3,
+            "is_published": True,
+            "voice_id": "voice",
+            "assigned_tags": ["prod"],
+        },
+        {"type": "retell-llm", "llm_id": "replacement-llm", "version": 0},
+    )
+    assert agent_payload["agent_name"] == "Vortex"
+    assert agent_payload["voice_id"] == "voice"
+    assert agent_payload["response_engine"]["llm_id"] == "replacement-llm"
+    assert "agent_id" not in agent_payload and "assigned_tags" not in agent_payload
 
 
 def test_firma_ausente_o_falsa_se_rechaza(entorno):
@@ -127,6 +328,7 @@ def test_crear_llamada_codigo(entorno):
     assert ok.status_code == 200
     assert cuerpo["access_token"] == "token_falso" and cuerpo["call_id"] == "call_1" and cuerpo["transport"] == "gateway"
     assert cuerpo["ice_servers"] == [{"urls": ["turn:turn.ejemplo.com:3478"], "username": "u", "credential": "c"}]
+    assert entorno.get("/api/acciones/call_1").json() == {"acciones": [], "ultimo": 0}
 
 
 def test_crear_llamada_limita_intentos(entorno):

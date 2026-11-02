@@ -57,3 +57,30 @@ El frontend obtiene la URL del puente de `VITE_ASSISTANT_API_URL` (por defecto, 
 - No subir backend/.env ni ningún otro archivo .env.
 - No compartir la clave de Retell fuera del equipo.
 - Al terminar el proyecto: eliminar la clave en Retell (Settings > API Keys) y crear otra.
+
+## Puesta en marcha integrada y prueba sin voz
+
+Para probar la integración local, mantén tres terminales abiertas desde la raíz del repositorio:
+
+1. **Backend (8000):** activa el entorno virtual de `backend/` y ejecuta `python -m uvicorn main:app --port 8000`.
+2. **Puente Retell (8001):** activa `.venv` dentro de `retell-bridge/` y ejecuta `python -m uvicorn main:app --port 8001`.
+3. **Frontend (5173):** dentro de `frontend/`, ejecuta `pnpm dev`.
+
+En una cuarta terminal, inicia un túnel temporal al puente:
+
+```powershell
+cloudflared tunnel --url http://localhost:8001
+```
+
+Conserva abierta esa terminal. Cloudflare imprime una URL HTTPS pública; su dirección temporal cambia si el túnel se detiene y se crea de nuevo. Usa la URL vigente para registrar las herramientas y ejecutar el humo:
+
+```powershell
+cd retell-bridge
+.\.venv\Scripts\python.exe scripts\registrar_funciones.py --url https://URL-VIGENTE.trycloudflare.com --dry-run
+.\.venv\Scripts\python.exe scripts\registrar_funciones.py --url https://URL-VIGENTE.trycloudflare.com
+.\.venv\Scripts\python.exe scripts\prueba_humo.py --puente http://localhost:8001 --publica https://URL-VIGENTE.trycloudflare.com
+```
+
+Cada integrante debe configurar su propio `RETELL_API_KEY` y `RETELL_AGENT_ID` en su `retell-bridge/.env`; no copie credenciales de otro integrante ni las incluya en `.env.example`. El registro puede crear un agente de reemplazo si el actual está publicado y actualiza el `RETELL_AGENT_ID` local cuando lo hace.
+
+El humo simula los webhooks de Retell sin audio. Para esa simulación, el puente local debe tener `DEV_SKIP_SIGNATURE=true` en `retell-bridge/.env` y `APP_ENV` distinto de `production`; reinicia el puente después del cambio, ejecuta la prueba y restaura inmediatamente `DEV_SKIP_SIGNATURE=false`, reiniciando de nuevo el puente. No habilites esa opción en producción ni expongas el puente sin el túnel/control de acceso correspondiente. Si no puedes cambiar temporalmente el ajuste, el humo reportará bloqueada la simulación; no alterará el `.env`.

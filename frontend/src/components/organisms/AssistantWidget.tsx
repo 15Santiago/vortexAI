@@ -17,11 +17,21 @@ type AssistantProduct = {
 type AssistantScreenAction = {
   key: string;
   path: string;
-  state?: {
-    assistantProductIds: number[];
-    assistantQuery: string;
-    assistantSearchExecuted: true;
-  };
+};
+type QueuedScreenAction = {
+  id: number;
+  tipo:
+    | 'catalogo'
+    | 'producto'
+    | 'navegar'
+    | 'mostrar_productos'
+    | 'abrir_producto'
+    | 'ir_a';
+  ruta: string;
+  ids?: number[];
+  consulta?: string;
+  destino?: string;
+  producto_id?: number;
 };
 type CreateCallResponse = {
   access_token: string;
@@ -162,14 +172,13 @@ function screenActionFromUpdate(update: unknown): AssistantScreenAction | null {
         const id = optionalNumber(product?.id);
         return id && Number.isInteger(id) && id > 0 ? [id] : [];
       });
+      const params = new URLSearchParams();
+      params.set('ids', [...new Set(productIds)].join(','));
+      const query = latestUserQuery(update);
+      if (query) params.set('consulta', query);
       return {
         key,
-        path: '/catalogo',
-        state: {
-          assistantProductIds: [...new Set(productIds)],
-          assistantQuery: latestUserQuery(update),
-          assistantSearchExecuted: true,
-        },
+        path: `/catalogo?${params.toString()}`,
       };
     }
 
@@ -180,6 +189,35 @@ function screenActionFromUpdate(update: unknown): AssistantScreenAction | null {
   }
 
   return null;
+}
+
+function screenPathFromQueuedAction(action: QueuedScreenAction): string | null {
+  if (action.tipo === 'catalogo' || action.tipo === 'mostrar_productos') {
+    const ids = Array.isArray(action.ids)
+      ? action.ids.filter((id) => Number.isInteger(id) && id > 0)
+      : [];
+    const params = new URLSearchParams();
+    params.set('ids', ids.join(','));
+    if (action.consulta) params.set('consulta', action.consulta);
+    return `/catalogo?${params.toString()}`;
+  }
+
+  if (action.tipo === 'producto' || action.tipo === 'abrir_producto') {
+    const id = optionalNumber(action.producto_id);
+    return id && Number.isInteger(id) && id > 0 ? `/producto/${id}` : null;
+  }
+
+  const sectionPaths: Record<string, string> = {
+    inicio: '/',
+    catalogo: '/catalogo',
+    metricas: '/admin/dashboard',
+    perfil: '/perfil',
+  };
+  if (action.destino === 'producto') {
+    const id = optionalNumber(action.producto_id);
+    return id && Number.isInteger(id) && id > 0 ? `/producto/${id}` : null;
+  }
+  return action.destino ? sectionPaths[action.destino] ?? null : null;
 }
 
 function errorName(error: unknown): string {
@@ -199,6 +237,7 @@ function AuthenticatedAssistantWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [accessCode, setAccessCode] = useState(ASSISTANT_ACCESS_CODE);
   const [phase, setPhase] = useState<CallPhase>('idle');
+  const [activeCallId, setActiveCallId] = useState<string | null>(null);
   const [status, setStatus] = useState('Pulsa el micrófono y busca productos por voz.');
   const [isError, setIsError] = useState(false);
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
@@ -246,6 +285,7 @@ function AuthenticatedAssistantWidget() {
     });
     client.on('call_ended', () => {
       if (!mountedRef.current) return;
+      setActiveCallId(null);
       updatePhase('idle');
       setStatus('Llamada terminada. Puedes iniciar otra.');
       setIsError(false);
@@ -275,7 +315,7 @@ function AuthenticatedAssistantWidget() {
       const screenAction = screenActionFromUpdate(update);
       if (screenAction && screenAction.key !== lastScreenActionRef.current) {
         lastScreenActionRef.current = screenAction.key;
-        navigate(screenAction.path, { state: screenAction.state ?? null });
+        navigate(screenAction.path);
       }
     });
     client.on('error', (error: unknown) => {
@@ -284,6 +324,7 @@ function AuthenticatedAssistantWidget() {
       try {
         client.stopCall();
       } finally {
+        setActiveCallId(null);
         updatePhase('idle');
         setStatus('No se pudo mantener la llamada. Revisa los detalles técnicos.');
         setIsError(true);
@@ -299,6 +340,67 @@ function AuthenticatedAssistantWidget() {
       client.removeAllListeners();
     };
   }, [navigate, recordTechnicalEvent, updatePhase]);
+
+  useEffect(() => {
+    if (!activeCallId) return;
+    const callId = activeCallId;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    let cursor = 0;
+    let hasLoggedPollError = false;
+
+    async function pollActions() {
+      try {
+        const response = await fetch(
+          `${ASSISTANT_API_URL}/api/acciones/${encodeURIComponent(callId)}?desde=${cursor}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) {
+          throw new Error(`El puente respondió HTTP ${response.status} al consultar acciones.`);
+        }
+
+        const payload = (await response.json()) as {
+          acciones?: QueuedScreenAction[];
+          ultimo?: number;
+        };
+        hasLoggedPollError = false;
+        const acciones = Array.isArray(payload.acciones) ? payload.acciones : [];
+        if (typeof payload.ultimo === 'number' && Number.isInteger(payload.ultimo)) {
+          cursor = Math.max(cursor, payload.ultimo);
+        } else if (acciones.length > 0) {
+          cursor = Math.max(cursor, ...acciones.map((accion) => accion.id));
+        }
+
+        const paths = acciones
+          .map(screenPathFromQueuedAction)
+          .filter((path): path is string => path !== null);
+        const latestPath = paths.at(-1);
+        if (latestPath) navigate(latestPath);
+      } catch (error) {
+        if (
+          !cancelled &&
+          !hasLoggedPollError &&
+          !(error instanceof DOMException && error.name === 'AbortError')
+        ) {
+          hasLoggedPollError = true;
+          recordTechnicalEvent(
+            error instanceof Error ? error.message : 'No se pudieron consultar acciones de pantalla.',
+          );
+        }
+      } finally {
+        if (!cancelled) timer = setTimeout(() => void pollActions(), 1000);
+      }
+    }
+
+    void pollActions();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [activeCallId, navigate, recordTechnicalEvent]);
 
   useEffect(() => {
     if (isOpen) {
@@ -410,6 +512,7 @@ function AuthenticatedAssistantWidget() {
       }
 
       recordTechnicalEvent('Solicitud de llamada aceptada por el puente.');
+      setActiveCallId(payload.call_id);
       const client = clientRef.current;
       if (!client) throw new Error('El cliente de voz todavía no está listo.');
 
@@ -426,6 +529,7 @@ function AuthenticatedAssistantWidget() {
       if (error instanceof DOMException && error.name === 'AbortError') return;
 
       recordTechnicalEvent(`No se pudo iniciar la llamada (${errorName(error)}).`);
+      setActiveCallId(null);
       updatePhase('idle');
       setStatus(error instanceof Error ? error.message : 'No se pudo iniciar la llamada.');
       setIsError(true);
@@ -438,6 +542,7 @@ function AuthenticatedAssistantWidget() {
     attemptRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    setActiveCallId(null);
     clientRef.current?.stopCall();
     updatePhase('idle');
     setStatus('Llamada terminada. Puedes iniciar otra.');

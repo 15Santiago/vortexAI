@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import SearchInput from '../components/atoms/SearchInput';
 import ProductCard from '../components/atoms/ProductCard';
 import FilterSidebar from '../components/molecules/FilterSidebar';
@@ -11,23 +11,24 @@ import './CatalogPage.css';
 const FILTERS_STORAGE_KEY = 'vortexai.catalogo.filtros';
 
 type AssistantCatalogSelection = {
-  productIds: number[];
+  productIds: string[];
   query: string;
 };
 
-function assistantSelectionFromState(state: unknown): AssistantCatalogSelection | null {
-  if (!state || typeof state !== 'object') return null;
-  const record = state as Record<string, unknown>;
-  if (!Array.isArray(record.assistantProductIds)) return null;
+function assistantSelectionFromSearch(search: string): AssistantCatalogSelection | null {
+  const params = new URLSearchParams(search);
+  if (!params.has('ids')) return null;
 
-  const productIds = record.assistantProductIds.filter(
-    (id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0,
-  );
-  if (productIds.length === 0 && record.assistantSearchExecuted !== true) return null;
-
+  const productIds = [...new Set(
+    (params.get('ids') ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => /^\d+$/.test(id) && Number(id) > 0)
+      .map((id) => String(Number(id))),
+  )];
   return {
     productIds,
-    query: typeof record.assistantQuery === 'string' ? record.assistantQuery : '',
+    query: params.get('consulta') ?? '',
   };
 }
 
@@ -66,10 +67,10 @@ function looksLikeBatteryProduct(title: string) {
 
 export default function CatalogPage() {
   const location = useLocation();
-  const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const assistantSelection = useMemo(
-    () => assistantSelectionFromState(location.state),
-    [location.state],
+    () => assistantSelectionFromSearch(location.search),
+    [location.search],
   );
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => readSavedFilters().search);
@@ -146,12 +147,24 @@ export default function CatalogPage() {
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
+    const assistantProductIds = assistantSelection
+      ? new Set(assistantSelection.productIds)
+      : null;
+
+    if (assistantSelection) {
+      const positions = new Map(
+        assistantSelection.productIds.map((id, index) => [id, index]),
+      );
+      return products
+        .filter((product) => assistantProductIds?.has(String(Number(product.id))) ?? false)
+        .sort(
+          (left, right) =>
+            (positions.get(String(Number(left.id))) ?? Number.MAX_SAFE_INTEGER) -
+            (positions.get(String(Number(right.id))) ?? Number.MAX_SAFE_INTEGER),
+        );
+    }
 
     return products.filter((product) => {
-      if (assistantSelection) {
-        return assistantSelection.productIds.includes(Number(product.id));
-      }
-
       const categoryMatches =
         activeCategory === 'all' || product.product_category === activeCategory;
 
@@ -171,13 +184,23 @@ export default function CatalogPage() {
 
   function handleSearchChange(value: string) {
     if (assistantSelection) {
-      navigate(location.pathname, { replace: true, state: null });
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete('ids');
+        next.delete('consulta');
+        return next;
+      }, { replace: true });
     }
     setSearch(value);
   }
 
   function showFullCatalog() {
-    navigate(location.pathname, { replace: true, state: null });
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('ids');
+      next.delete('consulta');
+      return next;
+    }, { replace: true });
     setSearch('');
     setSelectedCategory('all');
   }

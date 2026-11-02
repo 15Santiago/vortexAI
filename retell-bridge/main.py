@@ -3,6 +3,7 @@
 No modifica el backend existente: lee su catálogo público y expone
   - las funciones que Retell llama durante la conversación (/retell/...),
   - la creación de la llamada web (/api/crear-llamada),
+  - una cola temporal de navegación por llamada (/api/acciones/{call_id}),
   - la página de voz (/asistente),
   - un webhook opcional de fin de llamada (/retell/webhook).
 """
@@ -20,7 +21,7 @@ from typing import Any, Callable
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,11 +43,16 @@ ACCESS_CODE = os.getenv("ACCESS_CODE", "")
 SKIP_SIGNATURE = os.getenv("DEV_SKIP_SIGNATURE", "false").lower() == "true" and not PRODUCTION
 MAX_CALLS_PER_HOUR = int(os.getenv("MAX_CALLS_PER_HOUR", "30"))
 MAX_ATTEMPTS_PER_10_MIN = int(os.getenv("MAX_FAILED_ATTEMPTS_PER_10_MIN", "8"))  # códigos incorrectos por IP
+ACTION_TTL_SECONDS = 600
+MAX_ACTIONS_PER_CALL = 100
+MAX_ACTIVE_CALL_ACTIONS = 1000
 
 if PRODUCTION and not (RETELL_API_KEY and RETELL_AGENT_ID and ACCESS_CODE):
     raise RuntimeError("En producción deben estar definidas RETELL_API_KEY, RETELL_AGENT_ID y ACCESS_CODE.")
 
 _retell = Retell(api_key=RETELL_API_KEY or "sin-clave")
+_acciones_lock = threading.Lock()
+_acciones_por_llamada: dict[str, dict[str, Any]] = {}
 
 app = FastAPI(title="vortexAI · puente de Retell", docs_url=None if PRODUCTION else "/docs", redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
@@ -97,7 +103,7 @@ def _verificar_firma(crudo: bytes, firma: str | None) -> None:
         raise HTTPException(status_code=401, detail="Firma inválida.")
 
 
-async def _leer_argumentos(request: Request) -> dict[str, Any]:
+async def _leer_contexto(request: Request) -> tuple[dict[str, Any], str | None]:
     crudo = await request.body()
     _verificar_firma(crudo, request.headers.get("x-retell-signature"))
     try:
@@ -105,8 +111,98 @@ async def _leer_argumentos(request: Request) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Cuerpo no válido.") from exc
     if isinstance(cuerpo, dict) and isinstance(cuerpo.get("args"), dict):
-        return cuerpo["args"]  # formato normal de Retell: {name, call, args}
-    return cuerpo if isinstance(cuerpo, dict) else {}
+        llamada = cuerpo.get("call")
+        call_id = llamada.get("call_id") if isinstance(llamada, dict) else None
+        return cuerpo["args"], call_id if isinstance(call_id, str) else None
+    return (cuerpo, None) if isinstance(cuerpo, dict) else ({}, None)
+
+
+async def _leer_argumentos(request: Request) -> dict[str, Any]:
+    argumentos, _ = await _leer_contexto(request)
+    return argumentos
+
+
+def _agregar_accion(call_id: str | None, accion: dict[str, Any]) -> None:
+    if not call_id:
+        log.warning("La herramienta de Retell llegó sin call_id; no se pudo enviar la acción al navegador.")
+        return
+
+    ahora = time.time()
+    with _acciones_lock:
+        expiradas = [
+            existente
+            for existente, estado in _acciones_por_llamada.items()
+            if ahora - estado["actualizado"] > ACTION_TTL_SECONDS
+        ]
+        for existente in expiradas:
+            del _acciones_por_llamada[existente]
+
+        if call_id not in _acciones_por_llamada and len(_acciones_por_llamada) >= MAX_ACTIVE_CALL_ACTIONS:
+            mas_antigua = min(
+                _acciones_por_llamada,
+                key=lambda existente: _acciones_por_llamada[existente]["actualizado"],
+            )
+            del _acciones_por_llamada[mas_antigua]
+
+        estado = _acciones_por_llamada.setdefault(
+            call_id,
+            {"actualizado": ahora, "ultimo": 0, "acciones": deque(maxlen=MAX_ACTIONS_PER_CALL)},
+        )
+        estado["ultimo"] += 1
+        estado["actualizado"] = ahora
+        estado["acciones"].append({"id": estado["ultimo"], **accion})
+
+
+def _registrar_llamada(call_id: str) -> None:
+    ahora = time.time()
+    with _acciones_lock:
+        expiradas = [
+            existente
+            for existente, estado in _acciones_por_llamada.items()
+            if ahora - estado["actualizado"] > ACTION_TTL_SECONDS
+        ]
+        for existente in expiradas:
+            del _acciones_por_llamada[existente]
+
+        if call_id in _acciones_por_llamada:
+            _acciones_por_llamada[call_id]["actualizado"] = ahora
+            return
+        if len(_acciones_por_llamada) >= MAX_ACTIVE_CALL_ACTIONS:
+            mas_antigua = min(
+                _acciones_por_llamada,
+                key=lambda existente: _acciones_por_llamada[existente]["actualizado"],
+            )
+            del _acciones_por_llamada[mas_antigua]
+        _acciones_por_llamada[call_id] = {
+            "actualizado": ahora,
+            "ultimo": 0,
+            "acciones": deque(maxlen=MAX_ACTIONS_PER_CALL),
+        }
+
+
+def _registrar_resultado_busqueda(
+    call_id: str | None,
+    argumentos: dict[str, Any],
+    resultado: dict[str, Any],
+) -> None:
+    if "error" in resultado or not isinstance(resultado.get("resultados"), list):
+        return
+    ids = []
+    for producto in resultado["resultados"]:
+        if not isinstance(producto, dict):
+            continue
+        product_id = producto.get("id")
+        if isinstance(product_id, int) and not isinstance(product_id, bool) and product_id > 0:
+            ids.append(product_id)
+    _agregar_accion(
+        call_id,
+        {
+            "tipo": "mostrar_productos",
+            "ruta": "/catalogo",
+            "ids": list(dict.fromkeys(ids)),
+            "consulta": str(argumentos.get("consulta") or ""),
+        },
+    )
 
 
 async def _ejecutar(funcion: Callable[..., dict[str, Any]], argumentos: dict[str, Any]) -> dict[str, Any]:
@@ -124,17 +220,36 @@ async def _ejecutar(funcion: Callable[..., dict[str, Any]], argumentos: dict[str
 
 @app.post("/retell/buscar-productos")
 async def retell_buscar_productos(request: Request) -> dict[str, Any]:
-    return await _ejecutar(catalogo.buscar, await _leer_argumentos(request))
+    argumentos, call_id = await _leer_contexto(request)
+    resultado = await _ejecutar(catalogo.buscar, argumentos)
+    _registrar_resultado_busqueda(call_id, argumentos, resultado)
+    return resultado
 
 
 @app.post("/retell/detalle-producto")
 async def retell_detalle_producto(request: Request) -> dict[str, Any]:
-    return await _ejecutar(catalogo.detalle, await _leer_argumentos(request))
+    argumentos, call_id = await _leer_contexto(request)
+    resultado = await _ejecutar(catalogo.detalle, argumentos)
+    product_id = resultado.get("id")
+    if (
+        "error" not in resultado
+        and isinstance(product_id, int)
+        and not isinstance(product_id, bool)
+        and product_id > 0
+    ):
+        _agregar_accion(
+            call_id,
+            {"tipo": "abrir_producto", "ruta": f"/producto/{product_id}", "producto_id": product_id},
+        )
+    return resultado
 
 
 @app.post("/retell/mejores-ofertas")
 async def retell_mejores_ofertas(request: Request) -> dict[str, Any]:
-    return await _ejecutar(catalogo.mejores_ofertas, await _leer_argumentos(request))
+    argumentos, call_id = await _leer_contexto(request)
+    resultado = await _ejecutar(catalogo.mejores_ofertas, argumentos)
+    _registrar_resultado_busqueda(call_id, argumentos, resultado)
+    return resultado
 
 
 def navegar(seccion: str, producto_id: Any = None) -> dict[str, Any]:
@@ -174,7 +289,43 @@ def navegar(seccion: str, producto_id: Any = None) -> dict[str, Any]:
 
 @app.post("/retell/navegar")
 async def retell_navegar(request: Request) -> dict[str, Any]:
-    return await _ejecutar(navegar, await _leer_argumentos(request))
+    argumentos, call_id = await _leer_contexto(request)
+    if "seccion" not in argumentos and isinstance(argumentos.get("destino"), str):
+        argumentos["seccion"] = argumentos.pop("destino")
+    resultado = await _ejecutar(navegar, argumentos)
+    if resultado.get("accion") == "navegar":
+        _agregar_accion(
+            call_id,
+            {
+                "tipo": "ir_a",
+                "ruta": resultado["ruta"],
+                "destino": resultado["destino"],
+                **(
+                    {"producto_id": resultado["producto_id"]}
+                    if "producto_id" in resultado
+                    else {}
+                ),
+            },
+        )
+    return resultado
+
+
+@app.get("/api/acciones/{call_id}")
+def obtener_acciones(call_id: str, desde: int = Query(default=0, ge=0)) -> dict[str, Any]:
+    if not call_id or len(call_id) > 256:
+        raise HTTPException(status_code=400, detail="Identificador de llamada no válido.")
+
+    ahora = time.time()
+    with _acciones_lock:
+        estado = _acciones_por_llamada.get(call_id)
+        if not estado:
+            raise HTTPException(status_code=404, detail="No existe una llamada activa con ese identificador.")
+        if ahora - estado["actualizado"] > ACTION_TTL_SECONDS:
+            del _acciones_por_llamada[call_id]
+            raise HTTPException(status_code=404, detail="La cola de acciones de esta llamada expiró.")
+        estado["actualizado"] = ahora
+        acciones = [accion for accion in estado["acciones"] if accion["id"] > desde]
+        return {"acciones": acciones, "ultimo": estado["ultimo"]}
 
 
 # ---------------------------------------------------------------- llamada web
@@ -239,6 +390,7 @@ def crear_llamada(datos: SolicitudLlamada, request: Request) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         log.exception("Retell no pudo crear la llamada web")
         raise HTTPException(status_code=502, detail="No se pudo iniciar la llamada. Intenta de nuevo.") from None
+    _registrar_llamada(llamada.call_id)
     # Retell (API v3) conecta por "gateway": el navegador necesita también call_id, transport e ice_servers.
     return {
         "access_token": llamada.access_token,

@@ -29,8 +29,10 @@ Mantén el backend ejecutándose y abre otra terminal en la raíz del repositori
 Abre otra terminal en la raíz del repositorio y ejecuta:
     cd frontend
     pnpm install
+    copy .env.example .env.local
+Comprueba que `.env.local` tenga `VITE_ASSISTANT_API_URL=http://localhost:8001` y `VITE_ASSISTANT_ACCESS_CODE=vortex2026`. Este archivo es local, está ignorado por Git y Vite debe reiniciarse al cambiar variables `VITE_`.
     pnpm dev
-Abre http://localhost:5173
+Abre http://localhost:5173 e inicia sesión: el widget de voz aparece en la esquina inferior derecha solo cuando hay una sesión activa.
 
 ## 5. Asistente de voz (puerto 8001)
 Cada integrante debe crear su propio archivo local `retell-bridge/.env` a partir de `retell-bridge/.env.example` y configurar allí sus credenciales. No compartas ni subas ese archivo.
@@ -41,10 +43,12 @@ Abre otra terminal en la raíz del repositorio y ejecuta:
     .\.venv\Scripts\Activate.ps1
     pip install -r requirements.txt
     python -m uvicorn main:app --port 8001
-Abre http://localhost:8001/asistente, escribe el ACCESS_CODE que configuraste en tu `.env`, pulsa el círculo y permite el micrófono. El backend debe estar corriendo en el puerto 8000.
+En `retell-bridge/.env`, configura `ACCESS_CODE=vortex2026` y `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`. El backend debe estar corriendo en el puerto 8000. Inicia sesión en el frontend y usa el widget flotante; la página `/asistente` del puente queda disponible como respaldo.
+
+El frontend obtiene la URL del puente de `VITE_ASSISTANT_API_URL` (por defecto, el host actual en el puerto 8001) y la clave visible del widget de `VITE_ASSISTANT_ACCESS_CODE`. En Azure, define ambas variables durante el build del frontend, apunta la URL a la dirección HTTPS del puente y agrega la URL HTTPS del frontend a `CORS_ORIGINS` del puente. El micrófono requiere HTTPS en producción; `localhost` también es un contexto seguro para desarrollo. Si el hosting añade `Permissions-Policy`, permite `microphone=(self)`.
 
 ## Si algo falla
-- La página de voz muestra un panel "Detalles técnicos": copia su contenido y compártelo con el equipo.
+- El widget muestra "Detalles técnicos" con eventos locales sin tokens ni claves; la página `/asistente` del puente sigue disponible como respaldo.
 - Si el puente no encuentra productos, revisa que el backend esté corriendo y que la importación haya terminado.
 - Para el catálogo sin MySQL: python -m uvicorn dev.mock_catalogo:app --port 8000 (dentro de retell-bridge).
 

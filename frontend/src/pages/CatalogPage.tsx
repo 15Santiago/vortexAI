@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import SearchInput from '../components/atoms/SearchInput';
 import ProductCard from '../components/atoms/ProductCard';
 import FilterSidebar from '../components/molecules/FilterSidebar';
@@ -8,6 +9,27 @@ import type { Product } from '../types/product';
 import './CatalogPage.css';
 
 const FILTERS_STORAGE_KEY = 'vortexai.catalogo.filtros';
+
+type AssistantCatalogSelection = {
+  productIds: number[];
+  query: string;
+};
+
+function assistantSelectionFromState(state: unknown): AssistantCatalogSelection | null {
+  if (!state || typeof state !== 'object') return null;
+  const record = state as Record<string, unknown>;
+  if (!Array.isArray(record.assistantProductIds)) return null;
+
+  const productIds = record.assistantProductIds.filter(
+    (id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0,
+  );
+  if (productIds.length === 0 && record.assistantSearchExecuted !== true) return null;
+
+  return {
+    productIds,
+    query: typeof record.assistantQuery === 'string' ? record.assistantQuery : '',
+  };
+}
 
 function readSavedFilters(): { category: string; search: string } {
   try {
@@ -43,6 +65,12 @@ function looksLikeBatteryProduct(title: string) {
 }
 
 export default function CatalogPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const assistantSelection = useMemo(
+    () => assistantSelectionFromState(location.state),
+    [location.state],
+  );
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => readSavedFilters().search);
   const [selectedCategory, setSelectedCategory] = useState(() => readSavedFilters().category);
@@ -110,13 +138,20 @@ export default function CatalogPage() {
   }, [products]);
 
   // Categoría que realmente se aplica: si la guardada ya no existe en los datos, se usa "Todas"
-  const activeCategory =
-    loading || categories.includes(selectedCategory) ? selectedCategory : 'all';
+  const activeCategory = assistantSelection
+    ? 'all'
+    : loading || categories.includes(selectedCategory)
+      ? selectedCategory
+      : 'all';
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return products.filter((product) => {
+      if (assistantSelection) {
+        return assistantSelection.productIds.includes(Number(product.id));
+      }
+
       const categoryMatches =
         activeCategory === 'all' || product.product_category === activeCategory;
 
@@ -132,13 +167,42 @@ export default function CatalogPage() {
 
       return categoryMatches && !isBatteryHiddenFromPhones && matchesSearch;
     });
-  }, [products, search, activeCategory]);
+  }, [products, search, activeCategory, assistantSelection]);
+
+  function handleSearchChange(value: string) {
+    if (assistantSelection) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    setSearch(value);
+  }
+
+  function showFullCatalog() {
+    navigate(location.pathname, { replace: true, state: null });
+    setSearch('');
+    setSelectedCategory('all');
+  }
 
   return (
     <div className="catalog-page">
       <div className="catalog-page__toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar productos..." />
+        <SearchInput
+          value={assistantSelection ? '' : search}
+          onChange={handleSearchChange}
+          placeholder="Buscar productos..."
+        />
       </div>
+
+      {assistantSelection ? (
+        <div className="catalog-page__assistant-search">
+          <span>
+            <strong>Resultados del asistente</strong>
+            {assistantSelection.query ? ` para “${assistantSelection.query}”` : ''}
+          </span>
+          <button type="button" onClick={showFullCatalog}>
+            Ver catálogo completo
+          </button>
+        </div>
+      ) : null}
 
       {suggestions.length > 0 ? (
         <section
@@ -163,11 +227,13 @@ export default function CatalogPage() {
       ) : null}
 
       <div className="catalog-page__body">
-        <FilterSidebar
-          categories={categories}
-          selectedCategory={activeCategory}
-          onSelectCategory={setSelectedCategory}
-        />
+        {assistantSelection ? null : (
+          <FilterSidebar
+            categories={categories}
+            selectedCategory={activeCategory}
+            onSelectCategory={setSelectedCategory}
+          />
+        )}
 
         <CatalogResults products={filteredProducts} loading={loading} />
       </div>

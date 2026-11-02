@@ -105,6 +105,37 @@ def test_mejores_ofertas_respeta_minimos(entorno):
     assert [x["id"] for x in r["resultados"]][0] == 1  # 35 % de descuento, el mayor con buenas reseñas
 
 
+@pytest.mark.parametrize(
+    ("seccion", "ruta"),
+    [
+        ("inicio", "/"),
+        ("catalogo", "/catalogo"),
+        ("metricas", "/admin/dashboard"),
+        ("perfil", "/perfil"),
+    ],
+)
+def test_navegar_a_secciones(entorno, seccion, ruta):
+    respuesta = _firmado(entorno, "/retell/navegar", {"seccion": seccion})
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"accion": "navegar", "destino": seccion, "ruta": ruta}
+
+
+def test_navegar_a_producto_y_rechazar_argumento_invalido(entorno):
+    producto = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": 42}
+    ).json()
+    invalido = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": -1}
+    ).json()
+    decimal = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": 42.5}
+    ).json()
+    assert producto["ruta"] == "/producto/42"
+    assert "error" in invalido
+    assert "error" in decimal
+    assert "error" in _firmado(entorno, "/retell/navegar", {"seccion": "desconocida"}).json()
+
+
 def test_firma_ausente_o_falsa_se_rechaza(entorno):
     assert entorno.post("/retell/buscar-productos", json={"args": {"consulta": "x"}}).status_code == 401
     r = entorno.post("/retell/buscar-productos", json={"args": {}}, headers={"x-retell-signature": "v=1,d=" + "0" * 64})

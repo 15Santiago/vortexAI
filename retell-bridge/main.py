@@ -137,6 +137,46 @@ async def retell_mejores_ofertas(request: Request) -> dict[str, Any]:
     return await _ejecutar(catalogo.mejores_ofertas, await _leer_argumentos(request))
 
 
+def navegar(seccion: str, producto_id: Any = None) -> dict[str, Any]:
+    seccion_normalizada = seccion.strip().lower()
+    rutas = {
+        "inicio": "/",
+        "catalogo": "/catalogo",
+        "metricas": "/admin/dashboard",
+        "perfil": "/perfil",
+    }
+
+    if seccion_normalizada == "producto":
+        if isinstance(producto_id, bool):
+            return {"error": "Para abrir un producto, proporciona un id válido."}
+        if isinstance(producto_id, int):
+            id_validado = producto_id
+        elif isinstance(producto_id, float) and producto_id.is_integer():
+            id_validado = int(producto_id)
+        elif isinstance(producto_id, str) and producto_id.isdecimal():
+            id_validado = int(producto_id)
+        else:
+            return {"error": "Para abrir un producto, proporciona un id válido."}
+        if id_validado < 1:
+            return {"error": "Para abrir un producto, proporciona un id válido."}
+        return {
+            "accion": "navegar",
+            "destino": "producto",
+            "ruta": f"/producto/{id_validado}",
+            "producto_id": id_validado,
+        }
+
+    ruta = rutas.get(seccion_normalizada)
+    if not ruta:
+        return {"error": "La sección solicitada no es válida."}
+    return {"accion": "navegar", "destino": seccion_normalizada, "ruta": ruta}
+
+
+@app.post("/retell/navegar")
+async def retell_navegar(request: Request) -> dict[str, Any]:
+    return await _ejecutar(navegar, await _leer_argumentos(request))
+
+
 # ---------------------------------------------------------------- llamada web
 _candado = threading.Lock()
 _intentos: dict[str, deque[float]] = defaultdict(deque)

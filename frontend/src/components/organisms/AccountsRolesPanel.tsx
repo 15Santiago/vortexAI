@@ -1,4 +1,6 @@
-import PermissionCheckbox from '../atoms/PermissionCheckbox';
+import { useState, type FormEvent } from 'react';
+import { PermissionCheckbox } from '../atoms/PermissionCheckbox';
+import { PasswordInput } from '../atoms/PasswordInput';
 import type { AppRole, ManagedUser, Permission } from '../../types/admin';
 
 type AccountsRolesPanelProps = {
@@ -14,15 +16,22 @@ type AccountsRolesPanelProps = {
   saving: boolean;
   onUserRoleFilterChange: (roleName: string) => void;
   onAssignedRoleChange: (userId: number, roleId: number) => void;
-  onSaveUserRole: (user: ManagedUser) => void;
+  canAssignRoles: boolean;
+  canManagePermissions: boolean;
+  canEditUsers: boolean;
+  canManageStatus: boolean;
+  canDeleteUsers: boolean;
+  onSaveUserRole: (user: ManagedUser, reason: string) => void;
   onEditUserPermissions: (user: ManagedUser) => void;
   onClosePermissions: () => void;
   onUserPermissionChange: (permissionName: string, checked: boolean) => void;
-  onSaveUserPermissions: (user: ManagedUser) => void;
-  onDeleteUser: (user: ManagedUser) => void;
+  onSaveUserPermissions: (user: ManagedUser, reason: string) => void;
+  onUpdateUser: (user: ManagedUser, email: string, password: string, reason: string) => Promise<boolean>;
+  onChangeUserStatus: (user: ManagedUser, isActive: boolean, reason: string) => void;
+  onDeleteUser: (user: ManagedUser, reason: string) => void;
 };
 
-export default function AccountsRolesPanel({
+export function AccountsRolesPanel({
   users,
   filteredUsers,
   roles,
@@ -32,6 +41,11 @@ export default function AccountsRolesPanel({
   editingUserId,
   userPermissionDraft,
   currentUserId,
+  canAssignRoles,
+  canManagePermissions,
+  canEditUsers,
+  canManageStatus,
+  canDeleteUsers,
   saving,
   onUserRoleFilterChange,
   onAssignedRoleChange,
@@ -40,8 +54,30 @@ export default function AccountsRolesPanel({
   onClosePermissions,
   onUserPermissionChange,
   onSaveUserPermissions,
+  onUpdateUser,
+  onChangeUserStatus,
   onDeleteUser,
 }: AccountsRolesPanelProps) {
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [reasonDraft, setReasonDraft] = useState('');
+
+  function askReason(action: string): string | null {
+    const reason = window.prompt(`Indica el motivo para ${action}:`)?.trim();
+    return reason && reason.length >= 3 ? reason : null;
+  }
+
+  async function submitAccountEdit(event: FormEvent<HTMLFormElement>, user: ManagedUser) {
+    event.preventDefault();
+    if (reasonDraft.trim().length < 3) return;
+    if (await onUpdateUser(user, emailDraft.trim(), passwordDraft, reasonDraft.trim())) {
+      setEditingAccountId(null);
+      setPasswordDraft('');
+      setReasonDraft('');
+    }
+  }
+
   return (
     <section className="admin-panel admin-panel--users">
       <div className="admin-panel__heading admin-panel__heading--inline">
@@ -74,7 +110,7 @@ export default function AccountsRolesPanel({
                   <span>{user.email}</span>
                   {user.username ? <span>Usuario: {user.username}</span> : null}
                 </div>
-                <div className="admin-user-role">
+                {canAssignRoles ? <div className="admin-user-role">
                   <select
                     aria-label={`Rol de ${user.email}`}
                     value={assignedRoles[user.id] ?? user.role_id}
@@ -87,25 +123,59 @@ export default function AccountsRolesPanel({
                     className="admin-button admin-button--secondary"
                     type="button"
                     disabled={saving || (assignedRoles[user.id] ?? user.role_id) === user.role_id}
-                    onClick={() => onSaveUserRole(user)}
+                    onClick={() => {
+                      const reason = askReason('cambiar el rol');
+                      if (reason) onSaveUserRole(user, reason);
+                    }}
                   >
                     Aplicar
                   </button>
-                </div>
+                </div> : null}
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
+                  {canEditUsers ? <button
+                    className="admin-button admin-button--secondary"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      setEditingAccountId(editingAccountId === user.id ? null : user.id);
+                      setEmailDraft(user.email);
+                      setPasswordDraft('');
+                      setReasonDraft('');
+                    }}
+                  >
+                    {editingAccountId === user.id ? 'Cerrar edición' : 'Editar cuenta'}
+                  </button> : null}
+                  {canManagePermissions ? <button
                     className="admin-button admin-button--secondary"
                     type="button"
                     disabled={saving}
                     onClick={() => editingUserId === user.id ? onClosePermissions() : onEditUserPermissions(user)}
                   >
                     {editingUserId === user.id ? 'Cerrar permisos' : 'Editar permisos'}
-                  </button>
-                  <button
+                  </button> : null}
+                  {canManageStatus ? <button
+                    className="admin-button admin-button--secondary"
+                    type="button"
+                    disabled={saving || user.id === currentUserId}
+                    onClick={() => {
+                      const nextActive = !user.is_active;
+                      const reason = askReason(nextActive ? 'reactivar la cuenta' : 'desactivar la cuenta');
+                      if (reason && window.confirm(`¿${nextActive ? 'Reactivar' : 'Desactivar'} la cuenta de ${user.email}?`)) {
+                        onChangeUserStatus(user, nextActive, reason);
+                      }
+                    }}
+                  >
+                    {user.is_active ? 'Desactivar' : 'Reactivar'}
+                  </button> : null}
+                  {canDeleteUsers ? <button
                     className="admin-button"
                     type="button"
                     disabled={saving || user.id === currentUserId}
-                    onClick={() => onDeleteUser(user)}
+                    onClick={() => {
+                      if (!window.confirm(`¿Eliminar permanentemente la cuenta de ${user.email}?`)) return;
+                      const reason = askReason('eliminar la cuenta');
+                      if (reason) onDeleteUser(user, reason);
+                    }}
                     style={{
                       background: 'rgba(239, 68, 68, 0.15)',
                       color: '#f87171',
@@ -115,9 +185,36 @@ export default function AccountsRolesPanel({
                     }}
                   >
                     Eliminar
-                  </button>
+                  </button> : null}
                 </div>
               </div>
+              <span className="admin-user-entry__status">{user.is_active ? 'Activa' : 'Desactivada'}</span>
+              {editingAccountId === user.id ? (
+                <form className="admin-user-permissions" onSubmit={(event) => void submitAccountEdit(event, user)}>
+                  <label>
+                    Correo electrónico
+                    <input type="email" required maxLength={254} value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} />
+                  </label>
+                  <label>
+                    Nueva contraseña (opcional)
+                    <PasswordInput
+                      minLength={12}
+                      maxLength={72}
+                      autoComplete="new-password"
+                      value={passwordDraft}
+                      onChange={(event) => setPasswordDraft(event.target.value)}
+                      placeholder="Dejar en blanco para conservarla"
+                    />
+                  </label>
+                  <label>
+                    Motivo del cambio
+                    <input required minLength={3} maxLength={500} value={reasonDraft} onChange={(event) => setReasonDraft(event.target.value)} />
+                  </label>
+                  <div className="admin-panel__actions">
+                    <button className="admin-button admin-button--primary" type="submit" disabled={saving}>Guardar cuenta</button>
+                  </div>
+                </form>
+              ) : null}
               {editingUserId === user.id ? (
                 <div className="admin-user-permissions">
                   <div className="admin-panel__heading admin-panel__heading--inline">
@@ -145,7 +242,15 @@ export default function AccountsRolesPanel({
                       <button className="admin-button admin-button--secondary" type="button" disabled={saving} onClick={onClosePermissions}>
                         Cancelar
                       </button>
-                      <button className="admin-button admin-button--primary" type="button" disabled={saving} onClick={() => onSaveUserPermissions(user)}>
+                      <button
+                        className="admin-button admin-button--primary"
+                        type="button"
+                        disabled={saving}
+                        onClick={() => {
+                          const reason = askReason('actualizar los permisos');
+                          if (reason) onSaveUserPermissions(user, reason);
+                        }}
+                      >
                         Guardar permisos
                       </button>
                     </div>

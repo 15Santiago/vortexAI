@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { AuthContext, type AuthUser } from './context';
 import { API_BASE_URL } from '../data/api';
 
 type AuthResponse = {
-  user: AuthUser;
+  user?: AuthUser;
+  verification_required?: boolean;
 };
 
 async function parseAuthResponse(response: Response): Promise<AuthResponse> {
@@ -51,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify(payload),
     });
     const result = await parseAuthResponse(response);
-    setUser(result.user);
+    if (result.user) setUser(result.user);
     setReady(true);
   }
 
@@ -61,6 +62,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function register(fullName: string, email: string, password: string) {
     await authenticate('register', { full_name: fullName, email, password });
+  }
+
+  async function verifyRegistration(email: string, code: string) {
+    await authenticate('verify-registration', { email, code });
   }
 
   async function refreshUser() {
@@ -95,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function logout() {
+  const logout = useCallback(async () => {
     try {
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: 'POST',
@@ -105,12 +110,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setReady(true);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    let timer: ReturnType<typeof setTimeout>;
+    const resetIdleTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { void logout(); }, user.idle_timeout_minutes * 60_000);
+    };
+    const activityEvents: Array<keyof WindowEventMap> = [
+      'keydown',
+      'mousedown',
+      'mousemove',
+      'scroll',
+      'touchstart',
+    ];
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, resetIdleTimer, { passive: true });
+    });
+    resetIdleTimer();
+
+    return () => {
+      clearTimeout(timer);
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, resetIdleTimer);
+      });
+    };
+  }, [logout, user]);
 
   return (
-    <AuthContext.Provider value={{ user, ready, login, register, logout, refreshUser, updateProfile }}>
+    <AuthContext.Provider value={{ user, ready, login, register, verifyRegistration, logout, refreshUser, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
 }
-

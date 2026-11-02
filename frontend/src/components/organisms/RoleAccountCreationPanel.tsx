@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
-import PermissionCheckbox from '../atoms/PermissionCheckbox';
+import { PermissionCheckbox } from '../atoms/PermissionCheckbox';
+import { PasswordInput } from '../atoms/PasswordInput';
 import type { Permission } from '../../types/admin';
 
 export type RoleAccountFormData = {
   name: string;
-  description: string;
+  reason: string;
   staff_full_name: string;
   staff_email: string;
   staff_username: string;
@@ -20,7 +21,7 @@ type RoleAccountCreationPanelProps = {
 
 const emptyForm: RoleAccountFormData = {
   name: '',
-  description: '',
+  reason: '',
   staff_full_name: '',
   staff_email: '',
   staff_username: '',
@@ -28,7 +29,7 @@ const emptyForm: RoleAccountFormData = {
   permission_names: [],
 };
 
-export default function RoleAccountCreationPanel({
+export function RoleAccountCreationPanel({
   permissions,
   saving,
   onCreate,
@@ -102,12 +103,14 @@ export default function RoleAccountCreationPanel({
             />
           </label>
           <label>
-            Descripción
+            Motivo de la acción
             <input
-              maxLength={255}
-              placeholder="Acceso para análisis de ventas"
-              value={formData.description}
-              onChange={(event) => updateField('description', event.target.value)}
+              required
+              minLength={3}
+              maxLength={500}
+              placeholder="Se crea el rol para asignar permisos al equipo de auditoría"
+              value={formData.reason}
+              onChange={(event) => updateField('reason', event.target.value)}
             />
           </label>
           <label>
@@ -144,10 +147,8 @@ export default function RoleAccountCreationPanel({
           </label>
           <label>
             Contraseña inicial
-            <input
+            <PasswordInput
               required
-              type="password"
-
               maxLength={72}
               autoComplete="new-password"
               value={formData.staff_password}

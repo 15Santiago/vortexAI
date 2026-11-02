@@ -84,12 +84,15 @@
 .admin-user-role { display: flex; align-items: center; gap: 0.45rem; }
 .admin-user-role select { flex: 1; }
 .admin-user-permissions { display: grid; gap: 0.75rem; padding: 0.8rem 0 1rem; border-top: 1px solid rgba(157, 178, 201, 0.1); }
+.admin-user-permissions label { display: grid; gap: 0.36rem; color: #bdc9d8; font-size: 0.7rem; font-weight: 650; }
+.admin-user-permissions > label input { min-width: 0; min-height: 2.5rem; padding: 0.55rem 0.65rem; border: 1px solid rgba(157, 178, 201, 0.2); border-radius: 5px; background: #0b1522; color: #e8eff7; font-size: 0.76rem; }
 .admin-user-permissions .admin-panel__heading { margin-bottom: 0; }
 .admin-user-permissions h3 { color: #edf3fa; font-size: 0.82rem; }
 .admin-user-permissions__actions { display: flex; gap: 0.5rem; }
 .admin-user-row__identity { display: grid; min-width: 0; gap: 0.2rem; }
 .admin-user-row__identity strong { overflow: hidden; color: #dce5f0; font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
 .admin-user-row__identity span { overflow: hidden; color: #8798ad; font-size: 0.67rem; text-overflow: ellipsis; white-space: nowrap; }
+.admin-user-entry__status { display: block; padding-bottom: 0.45rem; color: #8d9eb2; font-size: 0.66rem; }
 .admin-empty { display: grid; min-height: 180px; place-items: center; color: #a6b5c7; font-size: 0.82rem; text-align: center; }
 .admin-empty--compact { min-height: 4rem; font-size: 0.75rem; }
 .admin-message { padding: 0.7rem 0.85rem; border: 1px solid; border-radius: 6px; font-size: 0.75rem; }

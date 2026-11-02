@@ -6,7 +6,7 @@ type SearchInputProps = {
   placeholder?: string;
 };
 
-export default function SearchInput({
+export function SearchInput({
   value,
   onChange,
   placeholder = 'Buscar productos...',

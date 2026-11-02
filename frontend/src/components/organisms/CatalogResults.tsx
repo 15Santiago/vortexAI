@@ -1,4 +1,4 @@
-import ProductCard from '../atoms/ProductCard';
+import { ProductCard } from '../atoms/ProductCard';
 import type { Product } from '../../types/product';
 
 type CatalogResultsProps = {
@@ -6,7 +6,7 @@ type CatalogResultsProps = {
   loading: boolean;
 };
 
-export default function CatalogResults({ products, loading }: CatalogResultsProps) {
+export function CatalogResults({ products, loading }: CatalogResultsProps) {
   return (
     <main className="catalog-page__content">
       <div className="catalog-page__summary">

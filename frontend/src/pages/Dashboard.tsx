@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { API_BASE_URL } from '../data/api';
-import MetricCard from '../components/molecules/MetricCard';
-import MetricsOverview from '../components/organisms/MetricsOverview';
+import { MetricCard } from '../components/molecules/MetricCard';
+import { MetricsOverview } from '../components/organisms/MetricsOverview';
 import type { Metrics } from '../types/metrics';
 import './Dashboard.css';
 
@@ -12,7 +12,7 @@ const currencyFormat = new Intl.NumberFormat('es-MX', {
   maximumFractionDigits: 2,
 });
 
-export default function Dashboard() {
+export function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);

@@ -1,10 +1,11 @@
+from pathlib import Path
 import os
 
 from dotenv import load_dotenv
 import mysql.connector
 from mysql.connector import Error
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 def get_db_connection():

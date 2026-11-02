@@ -4,7 +4,7 @@ import type { Product } from '../types/product';
 import { API_BASE_URL } from '../data/api';
 import './ProductDetailPage.css';
 
-export default function ProductDetailPage() {
+export function ProductDetailPage() {
   const { id } = useParams();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,15 +53,15 @@ export default function ProductDetailPage() {
       </div>
 
       <div className="product-detail__layout">
-        <div className="product-detail__image-wrap">
-          <img src={product.product_image_url} alt={product.product_title} className="product-detail__image" />
-        </div>
+        <section className="product-detail__visual">
+          <h1 className="product-detail__title">{product.product_title}</h1>
+          <div className="product-detail__image-wrap">
+            <img src={product.product_image_url} alt={product.product_title} className="product-detail__image" />
+          </div>
+        </section>
 
-        <div className="product-detail__info">
+        <section className="product-detail__info" aria-label="Información del producto">
           <span className="product-detail__category">{product.product_category}</span>
-          <h1>{product.product_title}</h1>
-
-          <p className="product-detail__rating">★ {product.product_rating ?? 'N/A'} · {product.total_reviews ?? 0} reseñas</p>
 
           <div className="product-detail__price-block">
             <strong>${Number(product.discounted_price ?? product.original_price ?? 0).toFixed(2)}</strong>
@@ -69,6 +69,11 @@ export default function ProductDetailPage() {
               <span>${Number(product.original_price).toFixed(2)}</span>
             ) : null}
           </div>
+
+          <p className="product-detail__rating">
+            <span aria-label="Calificación">{product.product_rating ?? 'N/A'} ★</span>
+            <span>{product.total_reviews ?? 0} reseñas</span>
+          </p>
 
           <div className="product-detail__meta">
             <div>
@@ -86,7 +91,7 @@ export default function ProductDetailPage() {
               Ver métricas
             </Link>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

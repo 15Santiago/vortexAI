@@ -36,9 +36,11 @@ CREATE TABLE user_sessions (
     user_id BIGINT UNSIGNED NOT NULL,
     expires_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at DATETIME NULL,
     CONSTRAINT fk_user_sessions_user
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-    INDEX idx_user_sessions_expiry (expires_at)
+    INDEX idx_user_sessions_expiry (expires_at),
+    UNIQUE KEY uq_user_sessions_user (user_id)
 ) ENGINE = InnoDB;
 
 CREATE TABLE auth_login_attempts (
@@ -59,6 +61,7 @@ CREATE TABLE audit_logs (
     entity_id VARCHAR(100) NULL,
     old_values JSON NULL,
     new_values JSON NULL,
+    reason VARCHAR(500) NULL,
     ip_address VARCHAR(45) NULL,
     user_agent VARCHAR(512) NULL,
     created_at DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),
@@ -67,6 +70,17 @@ CREATE TABLE audit_logs (
     INDEX idx_audit_logs_created_at (created_at),
     INDEX idx_audit_logs_actor_created_at (actor_user_id, created_at),
     INDEX idx_audit_logs_entity (entity_type, entity_id)
+) ENGINE = InnoDB;
+
+CREATE TABLE registration_verifications (
+    email VARCHAR(254) PRIMARY KEY,
+    full_name VARCHAR(150) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    code_hash CHAR(60) NOT NULL,
+    attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    last_sent_at DATETIME NOT NULL,
+    INDEX idx_registration_verifications_expiry (expires_at)
 ) ENGINE = InnoDB;
 
 CREATE TABLE permissions (
@@ -82,6 +96,10 @@ VALUES
     ('roles.manage', 'Crear y consultar roles'),
     ('permissions.manage', 'Asignar permisos a roles'),
     ('users.manage', 'Consultar usuarios y asignarles roles'),
+    ('users.permissions.manage', 'Editar permisos individuales de usuarios'),
+    ('users.update', 'Actualizar correo y contraseña de usuarios'),
+    ('users.status', 'Desactivar o reactivar usuarios'),
+    ('users.delete', 'Eliminar usuarios'),
     ('audit.view', 'Consultar los registros de auditoría')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
@@ -112,6 +130,11 @@ FROM roles r
 JOIN permissions p ON
     (r.name = 'usuario' AND p.name IN ('catalog.view', 'metrics.view'))
     OR (r.name = 'administrador');
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r CROSS JOIN permissions p
+WHERE r.name = 'administrador';
 
 CREATE TABLE categories (
     id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -168,6 +191,10 @@ CREATE TABLE product_observations (
         CHECK (rating IS NULL OR (rating >= 0 AND rating <= 5)),
     CONSTRAINT chk_observations_discount
         CHECK (discount_percentage IS NULL OR (discount_percentage >= 0 AND discount_percentage <= 100)),
+    CONSTRAINT chk_observations_discounted_price
+        CHECK (discounted_price IS NULL OR discounted_price >= 0),
+    CONSTRAINT chk_observations_original_price
+        CHECK (original_price IS NULL OR original_price >= 0),
     INDEX idx_observations_product_date (product_id, collected_at),
     INDEX idx_observations_collected_at (collected_at)
 ) ENGINE = InnoDB;

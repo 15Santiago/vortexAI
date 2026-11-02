@@ -1,4 +1,4 @@
-import MetricGlyph from '../atoms/MetricGlyph';
+import { MetricGlyph } from '../atoms/MetricGlyph';
 
 type MetricCardProps = {
   label: string;
@@ -8,7 +8,7 @@ type MetricCardProps = {
   tone: 'cyan' | 'gold' | 'mint' | 'coral';
 };
 
-export default function MetricCard({ label, value, detail, symbol, tone }: MetricCardProps) {
+export function MetricCard({ label, value, detail, symbol, tone }: MetricCardProps) {
   return (
     <article className="metric-card">
       <div className="metric-card__topline">

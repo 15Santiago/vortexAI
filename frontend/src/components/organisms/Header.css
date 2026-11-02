@@ -32,7 +32,6 @@
 }
 
 .header__link,
-.header__cart,
 .header__avatar {
   color: #cbd5e1;
   text-decoration: none;
@@ -42,7 +41,6 @@
 }
 
 .header__link:hover,
-.header__cart:hover,
 .header__avatar:hover {
   color: #ffffff;
 }
@@ -78,13 +76,6 @@
   border-color: #55c9c0;
   background: rgba(65, 188, 177, 0.13);
   color: #91e8dc;
-}
-
-.header__cart {
-  padding: 0.6rem 1rem;
-  border-radius: 999px;
-  background: rgba(51, 65, 85, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.4);
 }
 
 .header__avatar {

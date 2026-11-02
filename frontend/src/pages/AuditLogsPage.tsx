@@ -12,6 +12,7 @@ type AuditLog = {
   entity_id: string | null;
   old_values: Record<string, unknown> | string | null;
   new_values: Record<string, unknown> | string | null;
+  reason: string | null;
   ip_address: string | null;
   user_agent: string | null;
   created_at: string;
@@ -37,6 +38,12 @@ function formatAction(action: string) {
     'role.permissions.update': 'Actualización de permisos',
     'user.role.update': 'Cambio de rol de usuario',
     'user.permissions.update': 'Actualización de permisos de usuario',
+    'user.credentials.update': 'Actualización de cuenta',
+    'user.password.admin_update': 'Cambio administrativo de contraseña',
+    'user.deactivate': 'Desactivación de cuenta',
+    'user.activate': 'Reactivación de cuenta',
+    'user.delete': 'Eliminación de cuenta',
+    'catalog.import': 'Importación del catálogo',
   };
   return labels[action] ?? action;
 }
@@ -49,7 +56,7 @@ function formatTimestamp(value: string) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
-export default function AuditLogsPage() {
+export function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -121,6 +128,7 @@ export default function AuditLogsPage() {
               </div>
               <dl className="audit-entry__meta">
                 <div><dt>Elemento</dt><dd>{log.entity_type}{log.entity_id ? ` #${log.entity_id}` : ''}</dd></div>
+                {log.reason ? <div><dt>Motivo</dt><dd>{log.reason}</dd></div> : null}
                 {log.ip_address ? <div><dt>Dirección IP</dt><dd>{log.ip_address}</dd></div> : null}
                 {log.user_agent ? <div><dt>Dispositivo</dt><dd>{log.user_agent}</dd></div> : null}
               </dl>

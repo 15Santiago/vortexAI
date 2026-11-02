@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../data/api';
 import './ForgotPasswordPage.css';
 
-export default function ForgotPasswordPage() {
+export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [token, setToken] = useState('');

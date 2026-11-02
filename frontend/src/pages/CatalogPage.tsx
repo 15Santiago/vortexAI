@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import SearchInput from '../components/atoms/SearchInput';
-import ProductCard from '../components/atoms/ProductCard';
-import FilterSidebar from '../components/molecules/FilterSidebar';
-import CatalogResults from '../components/organisms/CatalogResults';
+import { SearchInput } from '../components/atoms/SearchInput';
+import { ProductCard } from '../components/atoms/ProductCard';
+import { FilterSidebar } from '../components/molecules/FilterSidebar';
+import { CatalogResults } from '../components/organisms/CatalogResults';
 import { API_BASE_URL } from '../data/api';
 import type { Product } from '../types/product';
 import './CatalogPage.css';
@@ -42,7 +42,7 @@ function looksLikeBatteryProduct(title: string) {
   return batteryKeywords.some((keyword) => normalized.includes(keyword));
 }
 
-export default function CatalogPage() {
+export function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => readSavedFilters().search);
   const [selectedCategory, setSelectedCategory] = useState(() => readSavedFilters().category);

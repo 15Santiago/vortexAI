@@ -2,11 +2,16 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from mysql.connector import IntegrityError
+from pydantic import BaseModel, Field, field_validator
 
-from auth_service import (
-    PermissionAssignmentRequest,
+from app.application.auth_service import (
     RoleCreateRequest,
+    UserDeleteRequest,
+    UserPermissionAssignmentRequest,
     UserRoleAssignmentRequest,
+    UserStatusRequest,
+    UserUpdateRequest,
+    _validate_password_strength,
     _ensure_audit_log_table,
     _ensure_user_permission_schema,
     _get_effective_user_permissions,
@@ -14,7 +19,7 @@ from auth_service import (
     _write_audit_log,
     require_permission,
 )
-from database import get_db_connection
+from app.infrastructure.database import get_db_connection
 
 router = APIRouter()
 
@@ -32,7 +37,7 @@ def listar_permisos(_user: dict[str, Any] = Depends(require_permission("users.ma
 
 
 @router.get("/api/admin/roles")
-def listar_roles(_user: dict[str, Any] = Depends(require_permission("roles.manage"))) -> dict[str, Any]:
+def listar_roles(_user: dict[str, Any] = Depends(require_permission("users.manage"))) -> dict[str, Any]:
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -63,6 +68,7 @@ def crear_rol(
     request: Request,
     _user: dict[str, Any] = Depends(require_permission("roles.manage")),
 ) -> dict[str, Any]:
+    _validate_password_strength(role.staff_password)
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -76,7 +82,7 @@ def crear_rol(
 
         cursor.execute(
             "INSERT INTO roles (name, description) VALUES (%s, %s)",
-            (role.name, role.description.strip() if role.description else None),
+            (role.name, None),
         )
         role_id = cursor.lastrowid
         cursor.execute(
@@ -120,7 +126,6 @@ def crear_rol(
             role_id,
             new_values={
                 "name": role.name,
-                "description": role.description.strip() if role.description else None,
                 "staff_account": {
                     "id": user_id,
                     "full_name": role.staff_full_name,
@@ -129,10 +134,11 @@ def crear_rol(
                     "permission_names": permission_names,
                 },
             },
+            reason=role.reason,
         )
         conn.commit()
         return {
-            "role": {"id": role_id, "name": role.name, "description": role.description, "user_count": 1, "permission_names": []},
+            "role": {"id": role_id, "name": role.name, "description": None, "user_count": 1, "permission_names": []},
             "user": created_user,
         }
     except IntegrityError as exc:
@@ -211,6 +217,7 @@ def asignar_rol_a_usuario(
                 "full_name": target_user["full_name"],
                 "email": target_user["email"],
             },
+            reason=assignment.reason,
         )
         conn.commit()
         return {"message": "Rol de usuario actualizado."}
@@ -225,7 +232,7 @@ def asignar_rol_a_usuario(
 @router.get("/api/admin/users/{user_id}/permissions")
 def obtener_permisos_usuario(
     user_id: int,
-    _user: dict[str, Any] = Depends(require_permission("users.manage")),
+    _user: dict[str, Any] = Depends(require_permission("users.permissions.manage")),
 ) -> dict[str, Any]:
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
@@ -249,9 +256,9 @@ def obtener_permisos_usuario(
 @router.put("/api/admin/users/{user_id}/permissions")
 def actualizar_permisos_usuario(
     user_id: int,
-    assignment: PermissionAssignmentRequest,
+    assignment: UserPermissionAssignmentRequest,
     request: Request,
-    current_user: dict[str, Any] = Depends(require_permission("users.manage")),
+    current_user: dict[str, Any] = Depends(require_permission("users.permissions.manage")),
 ) -> dict[str, Any]:
     permission_names = sorted(set(assignment.permission_names))
     conn = get_db_connection()
@@ -331,6 +338,7 @@ def actualizar_permisos_usuario(
                 "email": target_user["email"],
                 "role_name": target_user["role_name"],
             },
+            reason=assignment.reason,
         )
         conn.commit()
         return {"user_id": user_id, "permission_names": permission_names}
@@ -358,7 +366,7 @@ def listar_registros_auditoria(
         cursor.execute(
             """
             SELECT id, actor_user_id, actor_name, actor_email, action, entity_type,
-                   entity_id, old_values, new_values, ip_address, user_agent, created_at
+                   entity_id, old_values, new_values, reason, ip_address, user_agent, created_at
             FROM audit_logs
             ORDER BY created_at DESC, id DESC
             LIMIT %s OFFSET %s
@@ -372,21 +380,35 @@ def listar_registros_auditoria(
         cursor.close()
         conn.close()
 
-from pydantic import BaseModel, EmailStr
-
 class AdminPasswordChangeRequest(BaseModel):
-    new_password: str
+    new_password: str = Field(min_length=12, max_length=72)
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede superar 72 bytes UTF-8.")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
 
 @router.put("/api/admin/users/{user_id}/password")
 def admin_cambiar_contrasena_usuario(
     user_id: int,
     payload: AdminPasswordChangeRequest,
     request: Request,
-    current_user: dict[str, Any] = Depends(require_permission("users.manage")),
+    current_user: dict[str, Any] = Depends(require_permission("users.update")),
 ) -> dict[str, str]:
-    """Punto 7: Permite al administrador cambiar la contraseña de cualquier usuario."""
-    if not payload.new_password:
-        raise HTTPException(status_code=422, detail="La contraseña no puede estar vacía.")
+    _validate_password_strength(payload.new_password)
+    if len(payload.reason.strip()) < 3 or len(payload.reason) > 500:
+        raise HTTPException(status_code=422, detail="Escribe un motivo de al menos 3 caracteres.")
     
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
@@ -399,6 +421,7 @@ def admin_cambiar_contrasena_usuario(
 
         new_hash = _hash_password(payload.new_password)
         cursor.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
+        cursor.execute("DELETE FROM user_sessions WHERE user_id = %s", (user_id,))
 
         _write_audit_log(
             cursor,
@@ -408,6 +431,7 @@ def admin_cambiar_contrasena_usuario(
             "user",
             user_id,
             new_values={"email": target_user["email"], "full_name": target_user["full_name"]},
+            reason=payload.reason.strip(),
         )
         conn.commit()
         return {"message": "Contraseña de usuario actualizada por el administrador con éxito."}
@@ -417,8 +441,6 @@ def admin_cambiar_contrasena_usuario(
     finally:
         cursor.close()
         conn.close()
-
-from pydantic import BaseModel
 
 class ForgotPasswordRequest(BaseModel):
     email: str  # Cambiamos EmailStr por str para evitar dependencias faltantes
@@ -458,11 +480,115 @@ def solictar_recuperacion_contrasena(payload: ForgotPasswordRequest, request: Re
         cursor.close()
         conn.close()
         
+@router.put("/api/admin/users/{user_id}")
+def actualizar_usuario(
+    user_id: int,
+    payload: UserUpdateRequest,
+    request: Request,
+    current_user: dict[str, Any] = Depends(require_permission("users.update")),
+) -> dict[str, Any]:
+    if payload.new_password:
+        _validate_password_strength(payload.new_password)
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _ensure_audit_log_table(cursor)
+        cursor.execute(
+            "SELECT id, full_name, email FROM users WHERE id = %s",
+            (user_id,),
+        )
+        target_user = cursor.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="No se encontró el usuario.")
+
+        updated_fields: list[str] = []
+        if payload.email != target_user["email"].strip().lower():
+            cursor.execute("UPDATE users SET email = %s WHERE id = %s", (payload.email, user_id))
+            updated_fields.append("email")
+        if payload.new_password:
+            cursor.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (_hash_password(payload.new_password), user_id),
+            )
+            updated_fields.append("password")
+        if updated_fields:
+            cursor.execute("DELETE FROM user_sessions WHERE user_id = %s", (user_id,))
+
+        _write_audit_log(
+            cursor,
+            request,
+            current_user,
+            "user.credentials.update",
+            "user",
+            user_id,
+            old_values={"email": target_user["email"]},
+            new_values={"email": payload.email, "updated_fields": updated_fields},
+            reason=payload.reason,
+        )
+        conn.commit()
+        return {
+            "message": "Datos de usuario actualizados.",
+            "session_revoked": bool(updated_fields),
+        }
+    except IntegrityError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo.") from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@router.put("/api/admin/users/{user_id}/status")
+def cambiar_estado_usuario(
+    user_id: int,
+    payload: UserStatusRequest,
+    request: Request,
+    current_user: dict[str, Any] = Depends(require_permission("users.status")),
+) -> dict[str, str]:
+    if user_id == current_user["id"] and not payload.is_active:
+        raise HTTPException(status_code=422, detail="No puedes desactivar tu propia cuenta.")
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _ensure_audit_log_table(cursor)
+        cursor.execute("SELECT id, full_name, email, is_active FROM users WHERE id = %s", (user_id,))
+        target_user = cursor.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="No se encontró el usuario.")
+        cursor.execute("UPDATE users SET is_active = %s WHERE id = %s", (payload.is_active, user_id))
+        if not payload.is_active:
+            cursor.execute("DELETE FROM user_sessions WHERE user_id = %s", (user_id,))
+        _write_audit_log(
+            cursor,
+            request,
+            current_user,
+            "user.activate" if payload.is_active else "user.deactivate",
+            "user",
+            user_id,
+            old_values={"is_active": bool(target_user["is_active"]), "email": target_user["email"]},
+            new_values={"is_active": payload.is_active, "email": target_user["email"]},
+            reason=payload.reason,
+        )
+        conn.commit()
+        return {"message": "Estado de usuario actualizado."}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @router.delete("/api/admin/users/{user_id}")
 def eliminar_usuario(
     user_id: int,
+    payload: UserDeleteRequest,
     request: Request,
-    current_user: dict[str, Any] = Depends(require_permission("users.manage")),
+    current_user: dict[str, Any] = Depends(require_permission("users.delete")),
 ) -> dict[str, str]:
     if user_id == current_user["id"]:
         raise HTTPException(status_code=422, detail="No puedes eliminar tu propia cuenta de administrador.")
@@ -486,6 +612,7 @@ def eliminar_usuario(
             "user",
             user_id,
             old_values={"email": target_user["email"], "full_name": target_user["full_name"]},
+            reason=payload.reason,
         )
         conn.commit()
         return {"message": "Usuario eliminado correctamente."}

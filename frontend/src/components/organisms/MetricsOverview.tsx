@@ -7,7 +7,7 @@ type MetricsOverviewProps = {
 
 const numberFormat = new Intl.NumberFormat('es-MX');
 
-export default function MetricsOverview({ metrics }: MetricsOverviewProps) {
+export function MetricsOverview({ metrics }: MetricsOverviewProps) {
   const largestCategory = Math.max(...metrics.categories.map((category) => category.product_count), 1);
   const largestPriceBucket = Math.max(...metrics.price_distribution.map((bucket) => bucket.product_count), 1);
 

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
-import AccountsRolesPanel from '../components/organisms/AccountsRolesPanel';
-import RoleAccountCreationPanel, { type RoleAccountFormData } from '../components/organisms/RoleAccountCreationPanel';
+import { AccountsRolesPanel } from '../components/organisms/AccountsRolesPanel';
+import { RoleAccountCreationPanel, type RoleAccountFormData } from '../components/organisms/RoleAccountCreationPanel';
 import { API_BASE_URL } from '../data/api';
 import type { AppRole, ManagedUser, Permission } from '../types/admin';
 import './AdminPage.css';
@@ -20,8 +21,9 @@ async function adminRequest<T>(path: string, options: RequestInit = {}): Promise
   return payload;
 }
 
-export default function AdminPage() {
-  const { user: currentAdmin, refreshUser } = useAuth();
+export function AdminPage() {
+  const { user: currentAdmin, refreshUser, logout } = useAuth();
+  const navigate = useNavigate();
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -73,7 +75,6 @@ export default function AdminPage() {
         method: 'POST',
         body: JSON.stringify({
           ...formData,
-          description: formData.description || null,
         }),
       });
       setRoles((current) => [...current, result.role].sort((left, right) => left.name.localeCompare(right.name)));
@@ -101,14 +102,14 @@ export default function AdminPage() {
     }
   }
 
-  async function saveUserPermissions(user: ManagedUser) {
+  async function saveUserPermissions(user: ManagedUser, reason: string) {
     setError('');
     setNotice('');
     setSaving(true);
     try {
       await adminRequest(`/api/admin/users/${user.id}/permissions`, {
         method: 'PUT',
-        body: JSON.stringify({ permission_names: userPermissionDraft }),
+        body: JSON.stringify({ permission_names: userPermissionDraft, reason }),
       });
       setEditingUserId(null);
       setNotice(`Permisos de ${user.email} actualizados.`);
@@ -127,7 +128,7 @@ export default function AdminPage() {
     }
   }
 
-  async function saveUserRole(user: ManagedUser) {
+  async function saveUserRole(user: ManagedUser, reason: string) {
     const roleId = assignedRoles[user.id];
     if (roleId === user.role_id) return;
     setError('');
@@ -136,7 +137,7 @@ export default function AdminPage() {
     try {
       await adminRequest(`/api/admin/users/${user.id}/role`, {
         method: 'PUT',
-        body: JSON.stringify({ role_id: roleId }),
+        body: JSON.stringify({ role_id: roleId, reason }),
       });
       const role = roles.find((item) => item.id === roleId);
       if (!role) throw new Error('No se encontró el rol seleccionado.');
@@ -157,12 +158,57 @@ export default function AdminPage() {
     }
   }
 
-  async function deleteUser(user: ManagedUser) {
+  async function updateUser(user: ManagedUser, email: string, password: string, reason: string): Promise<boolean> {
+    setError('');
+    setNotice('');
+    setSaving(true);
+    try {
+      const result = await adminRequest<{ session_revoked: boolean }>(`/api/admin/users/${user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          email,
+          ...(password ? { new_password: password } : {}),
+          reason,
+        }),
+      });
+      setUsers((current) => current.map((item) => item.id === user.id ? { ...item, email } : item));
+      setNotice(`Datos de ${email} actualizados.`);
+      if (result.session_revoked && user.id === currentAdmin?.id) {
+        await logout();
+        navigate('/acceso', { replace: true });
+      }
+      return true;
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'No se pudieron actualizar los datos de la cuenta.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changeUserStatus(user: ManagedUser, isActive: boolean, reason: string) {
+    setError('');
+    setNotice('');
+    setSaving(true);
+    try {
+      await adminRequest(`/api/admin/users/${user.id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: isActive, reason }),
+      });
+      setUsers((current) => current.map((item) => item.id === user.id ? { ...item, is_active: isActive } : item));
+      setNotice(`Cuenta de ${user.email} ${isActive ? 'reactivada' : 'desactivada'}.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'No se pudo cambiar el estado de la cuenta.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteUser(user: ManagedUser, reason: string) {
     if (user.id === currentAdmin?.id) {
       setError('No puedes eliminar tu propia cuenta de administrador.');
       return;
     }
-    if (!window.confirm(`¿Estás seguro de que deseas eliminar al usuario ${user.email}?`)) return;
 
     setError('');
     setNotice('');
@@ -170,6 +216,7 @@ export default function AdminPage() {
     try {
       await adminRequest(`/api/admin/users/${user.id}`, {
         method: 'DELETE',
+        body: JSON.stringify({ reason }),
       });
       
       setUsers((current) => current.filter((item) => item.id !== user.id));
@@ -196,18 +243,20 @@ export default function AdminPage() {
           <h1>Administración</h1>
           <p>Gestiona roles, permisos y acceso de usuarios.</p>
         </div>
-        <span className="admin-heading__badge">ADMINISTRADOR</span>
+        <span className="admin-heading__badge">{currentAdmin?.is_admin ? 'ADMINISTRADOR' : 'PERSONAL AUTORIZADO'}</span>
       </header>
 
       {error ? <div className="admin-message admin-message--error" role="alert">{error}</div> : null}
       {notice ? <div className="admin-message admin-message--success" role="status">{notice}</div> : null}
       {loading ? <div className="admin-empty" role="status">Cargando configuración de acceso...</div> : (
         <>
-          <RoleAccountCreationPanel
-            permissions={permissions}
-            saving={saving}
-            onCreate={createRole}
-          />
+          {currentAdmin?.permissions.includes('roles.manage') ? (
+            <RoleAccountCreationPanel
+              permissions={permissions}
+              saving={saving}
+              onCreate={createRole}
+            />
+          ) : null}
 
           <AccountsRolesPanel
             users={users}
@@ -219,10 +268,15 @@ export default function AdminPage() {
             editingUserId={editingUserId}
             userPermissionDraft={userPermissionDraft}
             currentUserId={currentAdmin?.id}
+            canAssignRoles={Boolean(currentAdmin?.permissions.includes('users.manage'))}
+            canManagePermissions={Boolean(currentAdmin?.permissions.includes('users.permissions.manage'))}
+            canEditUsers={Boolean(currentAdmin?.permissions.includes('users.update'))}
+            canManageStatus={Boolean(currentAdmin?.permissions.includes('users.status'))}
+            canDeleteUsers={Boolean(currentAdmin?.permissions.includes('users.delete'))}
             saving={saving}
             onUserRoleFilterChange={setUserRoleFilter}
             onAssignedRoleChange={(userId, roleId) => setAssignedRoles((current) => ({ ...current, [userId]: roleId }))}
-            onSaveUserRole={(user) => void saveUserRole(user)}
+            onSaveUserRole={(user, reason) => void saveUserRole(user, reason)}
             onEditUserPermissions={(user) => void editUserPermissions(user)}
             onClosePermissions={() => setEditingUserId(null)}
             onUserPermissionChange={(permissionName, checked) => setUserPermissionDraft((current) => (
@@ -230,8 +284,10 @@ export default function AdminPage() {
                 ? [...current, permissionName]
                 : current.filter((name) => name !== permissionName)
             ))}
-            onSaveUserPermissions={(user) => void saveUserPermissions(user)}
-            onDeleteUser={(user) => void deleteUser(user)}
+            onSaveUserPermissions={(user, reason) => void saveUserPermissions(user, reason)}
+            onUpdateUser={updateUser}
+            onChangeUserStatus={(user, isActive, reason) => void changeUserStatus(user, isActive, reason)}
+            onDeleteUser={(user, reason) => void deleteUser(user, reason)}
           />
         </>
       )}

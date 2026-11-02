@@ -28,7 +28,7 @@ type FilterSidebarProps = {
   onSelectCategory: (category: string) => void;
 };
 
-export default function FilterSidebar({
+export function FilterSidebar({
   categories,
   selectedCategory,
   onSelectCategory,

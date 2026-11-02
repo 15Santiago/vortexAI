@@ -8,7 +8,7 @@ interface Producto {
   product_rating: number;
 }
 
-export default function Catalogo() {
+export function Catalogo() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [categoriaSel, setCategoriaSel] = useState('');

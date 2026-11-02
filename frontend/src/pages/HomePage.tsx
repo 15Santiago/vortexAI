@@ -22,7 +22,7 @@ const insights = [
   },
 ];
 
-export default function HomePage() {
+export function HomePage() {
   return (
     <div className="home-page">
       <section className="home-hero">

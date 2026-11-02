@@ -6,6 +6,8 @@ export type AuthUser = {
   email: string;
   is_admin: boolean;
   can_view_audit: boolean;
+  permissions: string[];
+  idle_timeout_minutes: number;
 };
 
 export type AuthContextValue = {
@@ -13,6 +15,7 @@ export type AuthContextValue = {
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (fullName: string, email: string, password: string) => Promise<void>;
+  verifyRegistration: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateProfile: (fullName: string, email: string, password?: string) => Promise<void>;

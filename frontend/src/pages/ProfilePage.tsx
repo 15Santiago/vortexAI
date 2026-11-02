@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/useAuth';
 import './ProfilePage.css';
 
-export default function ProfilePage() {
+export function ProfilePage() {
   const { user, updateProfile } = useAuth();
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');

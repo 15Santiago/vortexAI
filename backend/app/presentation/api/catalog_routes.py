@@ -3,9 +3,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth_service import get_current_user, require_permission
-from database import get_db_connection
-from importar_catalogo import import_products_from_csv
+from app.application.auth_service import (
+    get_current_user,
+    require_permission,
+)
+from app.infrastructure.database import get_db_connection
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -21,7 +23,7 @@ def obtener_productos() -> dict[str, Any]:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             """
-            SELECT p.id, p.source_key, p.title AS product_title,
+            SELECT p.id, p.title AS product_title,
                    p.product_page_url,
                    c.name AS product_category,
                    i.image_url AS product_image_url,
@@ -196,7 +198,7 @@ def obtener_producto(
     try:
         cursor.execute(
             """
-            SELECT p.id, p.source_key, p.title AS product_title,
+            SELECT p.id, p.title AS product_title,
                    p.product_page_url,
                    c.name AS product_category,
                    i.image_url AS product_image_url,
@@ -236,15 +238,6 @@ def obtener_producto(
         conn.close()
 
 
-@router.post("/api/importar-datos")
-def importar_datos() -> dict[str, Any]:
-    try:
-        return import_products_from_csv()
-    except Exception as exc:  # pragma: no cover
-        logger.exception("Error al importar datos")
-        raise HTTPException(status_code=500, detail="No se pudieron importar los datos.") from exc
-
-
 # ---------------------------------------------------------------------------
 # Módulo de sugerencias: historial del usuario + modelo de recomendación
 # ---------------------------------------------------------------------------
@@ -281,7 +274,7 @@ def _fetch_product_cards(cursor, product_ids: list[int]) -> list[dict[str, Any]]
     for product_id in product_ids:
         cursor.execute(
             """
-            SELECT p.id, p.source_key, p.title AS product_title,
+            SELECT p.id, p.title AS product_title,
                    p.product_page_url,
                    c.name AS product_category,
                    i.image_url AS product_image_url,

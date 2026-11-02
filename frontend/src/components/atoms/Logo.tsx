@@ -1,6 +1,6 @@
 import './Logo.css';
 
-export default function Logo() {
+export function Logo() {
   return (
     <div className="logo" aria-label="Logo de VortexAI">
       <span className="logo__mark">V</span>

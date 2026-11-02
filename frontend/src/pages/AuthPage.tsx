@@ -2,15 +2,18 @@ import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { API_BASE_URL } from '../data/api';
+import { PasswordInput } from '../components/atoms/PasswordInput';
 import './AuthPage.css';
 
-export default function AuthPage() {
+export function AuthPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, verifyRegistration } = useAuth();
   
   const isRegister = location.pathname === '/registro';
-  const [isForgotMode, setIsForgotMode] = useState(false); // Estado para alternar a recuperación
+  const [isForgotMode, setIsForgotMode] = useState(false);
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -28,12 +31,29 @@ export default function AuthPage() {
   
   const isEmailValid = emailRegex.test(email);
   const isPasswordValid = passwordRegex.test(password);
-  const isFormValid = isRegister ? (isEmailValid && isPasswordValid && fullName.trim().length > 0) : true;
+  const isFormValid = isRegister
+    ? awaitingVerification
+      ? /^\d{6}$/.test(verificationCode)
+      : isEmailValid && isPasswordValid && fullName.trim().length > 0
+    : true;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setMessage('');
+
+    if (isRegister && awaitingVerification) {
+      setSubmitting(true);
+      try {
+        await verifyRegistration(email, verificationCode);
+        navigate(destination, { replace: true });
+      } catch (submitError) {
+        setError(submitError instanceof Error ? submitError.message : 'No se pudo verificar el correo.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
 
     if (isRegister) {
       if (!isEmailValid) {
@@ -50,7 +70,8 @@ export default function AuthPage() {
     try {
       if (isRegister) {
         await register(fullName, email, password);
-        navigate(destination, { replace: true });
+        setAwaitingVerification(true);
+        setMessage('Te enviamos un código temporal al correo. Revisa tu bandeja de entrada.');
       } else {
         await login(email, password);
         navigate(destination, { replace: true });
@@ -107,8 +128,8 @@ export default function AuthPage() {
 
         <div className="auth-form-panel__heading">
           <span className="home-kicker">{isForgotMode ? 'SEGURIDAD' : isRegister ? 'NUEVA CUENTA' : 'ACCESO PERSONAL'}</span>
-          <h2>{isForgotMode ? 'Recuperar contraseña' : isRegister ? 'Crea tu cuenta' : 'Bienvenido de nuevo'}</h2>
-          <p>{isForgotMode ? 'Introduce tu correo registrado para generar un token de recuperación.' : isRegister ? 'Regístrate para consultar el panel de métricas.' : 'Inicia sesión para continuar al panel de métricas.'}</p>
+          <h2>{isForgotMode ? 'Recuperar contraseña' : isRegister ? awaitingVerification ? 'Verifica tu correo' : 'Crea tu cuenta' : 'Bienvenido de nuevo'}</h2>
+          <p>{isForgotMode ? 'Introduce tu correo registrado para generar un token de recuperación.' : isRegister ? awaitingVerification ? `Introduce el código de seis dígitos enviado a ${email}.` : 'Regístrate para consultar el panel de métricas.' : 'Inicia sesión para continuar al panel de métricas.'}</p>
         </div>
 
         {error ? <p className="auth-form__error" role="alert">{error}</p> : null}
@@ -145,8 +166,8 @@ export default function AuthPage() {
           </form>
         ) : (
           /* FORMULARIO DE LOGIN / REGISTRO NORMAL */
-          <form className="auth-form" onSubmit={handleSubmit}>
-            {isRegister ? (
+          <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
+            {isRegister && !awaitingVerification ? (
               <label>
                 Nombre completo
                 <input
@@ -160,7 +181,7 @@ export default function AuthPage() {
               </label>
             ) : null}
 
-            <label>
+            {!awaitingVerification ? <label>
               {isRegister ? 'Correo electrónico' : 'Correo electrónico o usuario'}
               <input
                 autoComplete={isRegister ? 'email' : 'username'}
@@ -171,28 +192,41 @@ export default function AuthPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder={isRegister ? 'nombre@correo.com' : 'admin o nombre@correo.com'}
               />
-            </label>
+            </label> : null}
 
-            {isRegister && email.length > 0 && !isEmailValid && (
+            {isRegister && !awaitingVerification && email.length > 0 && !isEmailValid && (
               <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: '-0.5rem 0 0.5rem 0' }}>
                 No puedes usar caracteres raros o formato inválido (ej. usa @ y sin símbolos extraños).
               </p>
             )}
 
-            <label>
+            {awaitingVerification ? (
+              <label>
+                Código de verificación
+                <input
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  pattern="\d{6}"
+                  required
+                  value={verificationCode}
+                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                />
+              </label>
+            ) : <label>
               Contraseña
-              <input
+              <PasswordInput
                 autoComplete={isRegister ? 'new-password' : 'current-password'}
                 maxLength={72}
                 required
-                type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={isRegister ? 'Al menos 12 caracteres' : 'Tu contraseña'}
               />
-            </label>
+            </label>}
 
-            {isRegister && (
+            {isRegister && !awaitingVerification && (
               <ul className="password-requirements" style={{ fontSize: '0.8rem', listStyle: 'none', padding: 0, margin: '0.25rem 0 1rem 0' }}>
                 <li style={{ color: password.length >= 12 ? '#22c55e' : '#94a3b8' }}>{password.length >= 12 ? '✓' : '•'} Mínimo 12 caracteres</li>
                 <li style={{ color: /[A-Z]/.test(password) ? '#22c55e' : '#94a3b8' }}>{/[A-Z]/.test(password) ? '✓' : '•'} Al menos una letra mayúscula</li>
@@ -208,9 +242,32 @@ export default function AuthPage() {
               disabled={submitting || !isFormValid}
               style={{ opacity: (!isFormValid && isRegister) ? 0.6 : 1, cursor: (!isFormValid && isRegister) ? 'not-allowed' : 'pointer' }}
             >
-              {submitting ? 'Procesando...' : isRegister ? 'Crear cuenta' : 'Iniciar sesión'}
+              {submitting ? 'Procesando...' : awaitingVerification ? 'Verificar correo' : isRegister ? 'Crear cuenta' : 'Iniciar sesión'}
               <span aria-hidden="true">→</span>
             </button>
+
+            {isRegister && awaitingVerification ? (
+              <button
+                type="button"
+                className="auth-submit"
+                disabled={submitting}
+                onClick={async () => {
+                  setError('');
+                  setMessage('');
+                  setSubmitting(true);
+                  try {
+                    await register(fullName, email, password);
+                    setMessage('Te enviamos un nuevo código de verificación.');
+                  } catch (resendError) {
+                    setError(resendError instanceof Error ? resendError.message : 'No se pudo reenviar el código.');
+                  } finally {
+                    setSubmitting(false);
+                  }
+                }}
+              >
+                Reenviar código
+              </button>
+            ) : null}
 
             {!isRegister && (
               <div style={{ marginTop: '0.75rem', textAlign: 'center' }}>

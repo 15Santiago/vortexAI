@@ -13,9 +13,10 @@ import bcrypt
 from fastapi import Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
-from database import get_db_connection
-
-production_mode = os.getenv("APP_ENV", "development").lower() == "production"
+from app.core.config import production_mode
+from app.domain.password_policy import validate_password_strength
+from app.infrastructure.database import get_db_connection
+from app.infrastructure.mailer import RegistrationMailError, send_registration_code as send_registration_email
 
 
 AUTH_SESSION_DAYS = 7
@@ -27,6 +28,10 @@ _audit_log_table_ready = False
 _audit_log_table_lock = threading.Lock()
 _user_permission_schema_ready = False
 _user_permission_schema_lock = threading.Lock()
+_registration_schema_ready = False
+_registration_schema_lock = threading.Lock()
+_audit_reason_column_ready = False
+_role_schema_ready = False
 
 
 class AccountRequest(BaseModel):
@@ -44,7 +49,7 @@ class AccountRequest(BaseModel):
 
 class RoleCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    description: str | None = Field(default=None, max_length=255)
+    reason: str = Field(min_length=3, max_length=500)
     permission_names: list[str] = Field(default_factory=list, max_length=50)
     staff_full_name: str = Field(min_length=1, max_length=150)
     staff_email: str = Field(min_length=3, max_length=254)
@@ -58,6 +63,14 @@ class RoleCreateRequest(BaseModel):
         if not name or any(unicodedata.category(character).startswith("C") for character in name):
             raise ValueError("Escribe un nombre de rol válido.")
         return name
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
 
     @field_validator("staff_password")
     @classmethod
@@ -89,6 +102,91 @@ class PermissionAssignmentRequest(BaseModel):
 
 class UserRoleAssignmentRequest(BaseModel):
     role_id: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
+
+
+class UserUpdateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    new_password: str | None = Field(default=None, min_length=12, max_length=72)
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]{2,}", email):
+            raise ValueError("Escribe un correo electrónico válido.")
+        return email
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_bytes(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede superar 72 bytes UTF-8.")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
+
+
+class UserStatusRequest(BaseModel):
+    is_active: bool
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
+
+
+class UserDeleteRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
+
+
+class UserPermissionAssignmentRequest(PermissionAssignmentRequest):
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("El motivo debe tener al menos 3 caracteres.")
+        return reason
+
+
+class RegistrationVerificationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    code: str = Field(pattern=r"^\d{6}$")
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
 
 
 def _hash_password(password: str) -> str:
@@ -155,10 +253,34 @@ def _ensure_session_table(cursor) -> None:
         )
         if cursor.fetchone()["total"] == 0:
             cursor.execute("ALTER TABLE user_sessions ADD COLUMN last_activity_at DATETIME NULL")
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = 'user_sessions'
+              AND index_name = 'uq_user_sessions_user'
+            """
+        )
+        if cursor.fetchone()["total"] == 0:
+            cursor.execute(
+                """
+                DELETE older FROM user_sessions older
+                JOIN user_sessions newer
+                  ON newer.user_id = older.user_id
+                 AND (
+                    newer.created_at > older.created_at
+                    OR (newer.created_at = older.created_at AND newer.token_hash > older.token_hash)
+                 )
+                """
+            )
+            cursor.execute(
+                "ALTER TABLE user_sessions ADD UNIQUE KEY uq_user_sessions_user (user_id)"
+            )
         _session_activity_column_ready = True
 
 def _ensure_audit_log_table(cursor) -> None:
-    global _audit_log_table_ready
+    global _audit_log_table_ready, _audit_reason_column_ready
     if _audit_log_table_ready:
         return
 
@@ -177,6 +299,7 @@ def _ensure_audit_log_table(cursor) -> None:
                 entity_id VARCHAR(100) NULL,
                 old_values JSON NULL,
                 new_values JSON NULL,
+                reason VARCHAR(500) NULL,
                 ip_address VARCHAR(45) NULL,
                 user_agent VARCHAR(512) NULL,
                 created_at DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),
@@ -188,7 +311,44 @@ def _ensure_audit_log_table(cursor) -> None:
             ) ENGINE = InnoDB
             """
         )
+        if not _audit_reason_column_ready:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'audit_logs'
+                  AND column_name = 'reason'
+                """
+            )
+            if cursor.fetchone()["total"] == 0:
+                cursor.execute("ALTER TABLE audit_logs ADD COLUMN reason VARCHAR(500) NULL")
+            _audit_reason_column_ready = True
         _audit_log_table_ready = True
+
+
+def _ensure_registration_schema(cursor) -> None:
+    global _registration_schema_ready
+    if _registration_schema_ready:
+        return
+    with _registration_schema_lock:
+        if _registration_schema_ready:
+            return
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS registration_verifications (
+                email VARCHAR(254) PRIMARY KEY,
+                full_name VARCHAR(150) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                code_hash CHAR(60) NOT NULL,
+                attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+                expires_at DATETIME NOT NULL,
+                last_sent_at DATETIME NOT NULL,
+                INDEX idx_registration_verifications_expiry (expires_at)
+            ) ENGINE = InnoDB
+            """
+        )
+        _registration_schema_ready = True
 
 
 def _ensure_user_permission_schema(cursor) -> None:
@@ -258,14 +418,15 @@ def _write_audit_log(
     entity_id: int | str,
     old_values: dict[str, Any] | None = None,
     new_values: dict[str, Any] | None = None,
+    reason: str | None = None,
 ) -> None:
     client_ip = request.client.host if request.client else None
     cursor.execute(
         """
         INSERT INTO audit_logs (
             actor_user_id, actor_name, actor_email, action, entity_type, entity_id,
-            old_values, new_values, ip_address, user_agent, created_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))
+            old_values, new_values, reason, ip_address, user_agent, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))
         """,
         (
             actor["id"],
@@ -276,6 +437,7 @@ def _write_audit_log(
             str(entity_id),
             json.dumps(old_values, ensure_ascii=False) if old_values is not None else None,
             json.dumps(new_values, ensure_ascii=False) if new_values is not None else None,
+            reason,
             client_ip,
             request.headers.get("user-agent", "")[:512] or None,
         ),
@@ -283,6 +445,9 @@ def _write_audit_log(
 
 
 def _ensure_role_schema(cursor) -> None:
+    global _role_schema_ready
+    if _role_schema_ready:
+        return
     cursor.execute(
         """
         SELECT CHARACTER_MAXIMUM_LENGTH
@@ -330,31 +495,35 @@ def _ensure_role_schema(cursor) -> None:
         ("roles.manage", "Crear y consultar roles"),
         ("permissions.manage", "Asignar permisos a roles"),
         ("users.manage", "Consultar usuarios y asignarles roles"),
+        ("users.permissions.manage", "Editar permisos individuales de usuarios"),
+        ("users.update", "Actualizar correo y contraseña de usuarios"),
+        ("users.status", "Desactivar o reactivar usuarios"),
+        ("users.delete", "Eliminar usuarios"),
         ("audit.view", "Consultar los registros de auditoría"),
     ]
     cursor.executemany(
         "INSERT IGNORE INTO permissions (name, description) VALUES (%s, %s)",
         permissions,
     )
-    cursor.execute("SELECT COUNT(*) AS total FROM role_permissions")
-    if cursor.fetchone()["total"] == 0:
-        cursor.execute(
-            """
-            INSERT IGNORE INTO role_permissions (role_id, permission_id)
-            SELECT r.id, p.id
-            FROM roles r
-            JOIN permissions p ON
-                (r.name = 'usuario' AND p.name IN ('catalog.view', 'metrics.view'))
-                OR (r.name = 'administrador')
-            """
-        )
+    cursor.execute(
+        """
+        INSERT IGNORE INTO role_permissions (role_id, permission_id)
+        SELECT r.id, p.id
+        FROM roles r
+        JOIN permissions p ON
+            (r.name = 'usuario' AND p.name IN ('catalog.view', 'metrics.view'))
+            OR (r.name = 'administrador')
+        """
+    )
     _ensure_user_permission_schema(cursor)
+    _role_schema_ready = True
 
 
 def _create_session(cursor, user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=AUTH_SESSION_DAYS)
+    cursor.execute("DELETE FROM user_sessions WHERE user_id = %s", (user_id,))
     cursor.execute(
         """
         INSERT INTO user_sessions (token_hash, user_id, expires_at, last_activity_at)
@@ -409,6 +578,7 @@ def get_current_user(session_cookie: str | None = Cookie(default=None, alias=AUT
     cursor = conn.cursor(dictionary=True)
     try:
         _ensure_session_table(cursor)
+        _ensure_role_schema(cursor)
         _ensure_user_permission_schema(cursor)
         conn.commit()
         cursor.execute(
@@ -450,6 +620,10 @@ def get_current_user(session_cookie: str | None = Cookie(default=None, alias=AUT
             "UPDATE user_sessions SET last_activity_at = UTC_TIMESTAMP() WHERE token_hash = %s",
             (token_hash,),
         )
+        user["permissions"] = _get_effective_user_permissions(
+            cursor, user["id"], user["role_id"]
+        )
+        user["session_token"] = token
         conn.commit()
         return user
     finally:
@@ -475,6 +649,8 @@ def _public_user(user: dict[str, Any]) -> dict[str, Any]:
         "email": user["email"],
         "is_admin": user.get("role_name") == "administrador",
         "can_view_audit": bool(user.get("can_view_audit", False)),
+        "permissions": user.get("permissions", []),
+        "idle_timeout_minutes": AUTH_IDLE_MINUTES,
     }
 
 
@@ -527,7 +703,6 @@ def _set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
-        max_age=AUTH_SESSION_DAYS * 24 * 60 * 60,
         httponly=True,
         secure=_secure_cookie_enabled(),
         samesite="lax",
@@ -545,13 +720,14 @@ NAME_PATTERN = re.compile(r"^[^\W\d_]+(?:[ '.\-][^\W\d_]+)*$")
 
 
 def _validate_password_strength(password: str) -> None:
-    if any(character.isspace() for character in password):
-        raise HTTPException(status_code=422, detail="La contraseña no puede tener espacios.")
-    if not any(character.isupper() for character in password):
-        raise HTTPException(status_code=422, detail="La contraseña debe incluir una letra mayúscula.")
-    if not any(character.islower() for character in password):
-        raise HTTPException(status_code=422, detail="La contraseña debe incluir una letra minúscula.")
-    if not any(character.isdigit() for character in password):
-        raise HTTPException(status_code=422, detail="La contraseña debe incluir un número.")
-    if not any(not character.isalnum() and not character.isspace() for character in password):
-        raise HTTPException(status_code=422, detail="La contraseña debe incluir un símbolo (por ejemplo ! @ # $ %).")
+    try:
+        validate_password_strength(password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def send_registration_code(email: str, code: str) -> None:
+    try:
+        send_registration_email(email, code)
+    except RegistrationMailError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

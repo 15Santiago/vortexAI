@@ -1,34 +1,41 @@
 import re
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from mysql.connector import IntegrityError
 
-from auth_service import (
+from app.application.auth_service import (
     AUTH_COOKIE_NAME,
+    AUTH_IDLE_MINUTES,
     AccountRequest,
     NAME_PATTERN,
+    RegistrationVerificationRequest,
     _validate_password_strength,
     _create_session,
+    _ensure_registration_schema,
     _ensure_role_schema,
     _ensure_session_table,
+    _get_effective_user_permissions,
     _hash_password,
     _login_attempt_key,
     _public_user,
     _record_failed_login,
     _secure_cookie_enabled,
+    send_registration_code,
     _set_session_cookie,
     _verify_password,
     get_current_user,
     get_optional_current_user,
 )
-from database import get_db_connection
+from app.infrastructure.database import get_db_connection
 
 router = APIRouter()
 
 
 @router.post("/api/auth/register")
-def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, Any]:
+def registrar_cuenta(account: AccountRequest) -> dict[str, Any]:
     email = account.email.strip().lower()
     full_name = (account.full_name or "").strip()
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]{2,}", email):
@@ -45,8 +52,91 @@ def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, A
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
+        _ensure_registration_schema(cursor)
+        _ensure_role_schema(cursor)
+        cursor.execute("DELETE FROM registration_verifications WHERE expires_at <= UTC_TIMESTAMP()")
+        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo.")
+        cursor.execute(
+            "SELECT last_sent_at FROM registration_verifications WHERE email = %s FOR UPDATE",
+            (email,),
+        )
+        pending = cursor.fetchone()
+        if pending and pending["last_sent_at"] > datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=60):
+            raise HTTPException(status_code=429, detail="Espera un minuto antes de solicitar otro código.")
+
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        code_hash = _hash_password(code)
+        cursor.execute(
+            """
+            INSERT INTO registration_verifications (
+                email, full_name, password_hash, code_hash,
+                attempts, expires_at, last_sent_at
+            ) VALUES (%s, %s, %s, %s, 0,
+                      UTC_TIMESTAMP() + INTERVAL 2 MINUTE, UTC_TIMESTAMP())
+            ON DUPLICATE KEY UPDATE
+                full_name = VALUES(full_name),
+                password_hash = VALUES(password_hash),
+                code_hash = VALUES(code_hash),
+                attempts = 0,
+                expires_at = VALUES(expires_at),
+                last_sent_at = VALUES(last_sent_at)
+            """,
+            (email, full_name, _hash_password(account.password), code_hash),
+        )
+        send_registration_code(email, code)
+        conn.commit()
+        return {"verification_required": True, "email": email}
+    except IntegrityError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo.") from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@router.post("/api/auth/verify-registration")
+def verificar_registro(
+    payload: RegistrationVerificationRequest,
+    response: Response,
+) -> dict[str, Any]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _ensure_registration_schema(cursor)
         _ensure_session_table(cursor)
         _ensure_role_schema(cursor)
+        cursor.execute(
+            """
+            SELECT full_name, password_hash, code_hash, attempts, expires_at
+            FROM registration_verifications
+            WHERE email = %s
+            FOR UPDATE
+            """,
+            (payload.email,),
+        )
+        pending = cursor.fetchone()
+        if not pending:
+            raise HTTPException(status_code=400, detail="El código no es válido o ya expiró.")
+        if pending["expires_at"] <= datetime.now(timezone.utc).replace(tzinfo=None):
+            cursor.execute("DELETE FROM registration_verifications WHERE email = %s", (payload.email,))
+            conn.commit()
+            raise HTTPException(status_code=400, detail="El código expiró. Solicita uno nuevo.")
+        if pending["attempts"] >= 5:
+            raise HTTPException(status_code=429, detail="Se agotaron los intentos. Solicita un código nuevo.")
+
+        if not _verify_password(payload.code, pending["code_hash"]):
+            cursor.execute(
+                "UPDATE registration_verifications SET attempts = attempts + 1 WHERE email = %s",
+                (payload.email,),
+            )
+            conn.commit()
+            raise HTTPException(status_code=400, detail="El código de verificación es incorrecto.")
+
         cursor.execute("SELECT id FROM roles WHERE name = %s", ("usuario",))
         role = cursor.fetchone()
         if not role:
@@ -63,19 +153,23 @@ def registrar_cuenta(account: AccountRequest, response: Response) -> dict[str, A
             INSERT INTO users (role_id, email, full_name, password_hash)
             VALUES (%s, %s, %s, %s)
             """,
-            (role_id, email, full_name, _hash_password(account.password)),
+            (role_id, payload.email, pending["full_name"], pending["password_hash"]),
         )
         user_id = cursor.lastrowid
+        permissions = _get_effective_user_permissions(cursor, user_id, role_id)
+        cursor.execute("DELETE FROM registration_verifications WHERE email = %s", (payload.email,))
         token = _create_session(cursor, user_id)
         conn.commit()
         _set_session_cookie(response, token)
         return {
             "user": {
                 "id": user_id,
-                "full_name": full_name,
-                "email": email,
+                "full_name": pending["full_name"],
+                "email": payload.email,
                 "is_admin": False,
                 "can_view_audit": False,
+                "permissions": permissions,
+                "idle_timeout_minutes": AUTH_IDLE_MINUTES,
             }
         }
     except IntegrityError as exc:
@@ -139,6 +233,9 @@ def iniciar_sesion(account: AccountRequest, request: Request, response: Response
             cursor.execute("UPDATE users SET password_hash = %s WHERE id = %s", (_hash_password(account.password), user["id"]))
         cursor.execute("DELETE FROM auth_login_attempts WHERE attempt_key = %s", (attempt_key,))
         cursor.execute("UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = %s", (user["id"],))
+        user["permissions"] = _get_effective_user_permissions(
+            cursor, user["id"], user["role_id"]
+        )
         token = _create_session(cursor, user["id"])
         conn.commit()
         _set_session_cookie(response, token)
@@ -153,8 +250,11 @@ def iniciar_sesion(account: AccountRequest, request: Request, response: Response
 
 @router.get("/api/auth/me")
 def obtener_usuario_actual(
+    response: Response,
     user: dict[str, Any] | None = Depends(get_optional_current_user),
 ) -> dict[str, Any]:
+    if user:
+        _set_session_cookie(response, user["session_token"])
     return {"user": _public_user(user) if user else None}
 
 
@@ -176,4 +276,3 @@ def cerrar_sesion(response: Response, user: dict[str, Any] = Depends(get_current
     finally:
         cursor.close()
         conn.close()
-

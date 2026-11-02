@@ -6,8 +6,8 @@
 
 :root {
   font-family: Inter, 'Segoe UI', sans-serif;
-  color: #e2e8f0;
-  background: #020617;
+  color: #34291e;
+  background: #fffaf3;
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
@@ -21,11 +21,12 @@ body,
 #root {
   width: 100%;
   min-height: 100vh;
-  background: #020617;
+  background: var(--app-bg, #fffaf3);
 }
 
 body {
   min-height: 100vh;
+  color: var(--text-primary, #34291e);
 }
 
 a {

@@ -6,7 +6,7 @@ type PermissionCheckboxProps = {
   onChange: (checked: boolean) => void;
 };
 
-export default function PermissionCheckbox({
+export function PermissionCheckbox({
   name,
   description,
   checked,

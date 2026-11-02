@@ -1,9 +1,9 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/useAuth';
-import Logo from '../atoms/Logo';
+import { Logo } from '../atoms/Logo';
 import './Header.css';
 
-export default function Header() {
+export function Header() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -29,7 +29,7 @@ export default function Header() {
         <NavLink to="/admin/dashboard" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
           Métricas
         </NavLink>
-        {user?.is_admin ? (
+        {user && (user.is_admin || user.permissions.includes('users.manage')) ? (
           <NavLink to="/admin" className={({ isActive }) => (isActive ? 'header__link header__link--active' : 'header__link')}>
             Administración
           </NavLink>

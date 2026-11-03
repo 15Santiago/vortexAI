@@ -109,7 +109,7 @@ def obtener_metricas(_user: dict[str, Any] = Depends(require_permission("metrics
         products = cursor.fetchall()
         cursor.close()
         conn.close()
-
+        
 
         category_totals: dict[str, dict[str, Any]] = {}
         price_buckets = {"Menos de $25": 0, "$25 a $100": 0, "$100 a $500": 0, "$500 o más": 0}
@@ -245,9 +245,7 @@ def importar_datos() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="No se pudieron importar los datos.") from exc
 
 
-# ---------------------------------------------------------------------------
-# Módulo de sugerencias: historial del usuario + modelo de recomendación
-# ---------------------------------------------------------------------------
+
 
 _history_table_ready = False
 
@@ -344,7 +342,7 @@ def registrar_vista(
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="No se encontró el producto.")
 
-        # Evita guardar la misma visita dos veces seguidas (React ejecuta efectos dos veces en desarrollo)
+
         cursor.execute(
             """
             SELECT 1 FROM user_product_views
@@ -393,7 +391,7 @@ def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) ->
             """,
             (user["id"], recent_limit),
         )
-        viewed_ids = [int(row["product_id"]) for row in cursor.fetchall()]  # de más reciente a más antigua
+        viewed_ids = [int(row["product_id"]) for row in cursor.fetchall()]
 
         # Usuario sin historial: se muestran los productos con más reseñas
         if not viewed_ids:
@@ -437,32 +435,44 @@ def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) ->
             ids = _most_reviewed_ids(cursor, limit, set(viewed_ids))
             return {"modo": "populares", "productos": _fetch_product_cards(cursor, ids)}
 
-        # Modelo de recomendación por contenido: TF-IDF + similitud coseno
+
         import numpy as np
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.metrics.pairwise import linear_kernel
+        from sklearn.cluster import MiniBatchKMeans
 
         def as_text(row: dict[str, Any]) -> str:
             return f"{row['title'] or ''} {row['category'] or ''}"
 
         def title_key(value: str | None) -> str:
-            # Primeras palabras del título: agrupa variantes casi idénticas del mismo producto
+            
             return " ".join(_normalize_title(value).split()[:6])
 
+        all_rows = viewed_rows + pool
         vectorizer = TfidfVectorizer(stop_words="english", max_features=5000)
-        matrix = vectorizer.fit_transform(
-            [as_text(row) for row in viewed_rows] + [as_text(row) for row in pool]
-        )
+        matrix = vectorizer.fit_transform([as_text(row) for row in all_rows])
+
         viewed_matrix = matrix[: len(viewed_rows)]
         pool_matrix = matrix[len(viewed_rows):]
 
-        # Las visitas más recientes pesan más (cada visita anterior pesa 85% de la siguiente)
+        # Aplicar K-Means Clustering para agrupar temáticamente
+        kmeans = MiniBatchKMeans(n_clusters=min(50, len(all_rows)), random_state=42, batch_size=1024, n_init='auto')
+        labels = kmeans.fit_predict(matrix)
+
+        viewed_clusters = set(labels[: len(viewed_rows)])
+        pool_labels = labels[len(viewed_rows):]
+
+        # Decaimiento por recencia en las visitas
         weights = np.array([0.85 ** position for position in range(len(viewed_rows))])
         similarity = (linear_kernel(viewed_matrix, pool_matrix) * weights[:, None]).max(axis=0)
 
+        # Bono de afinidad si el candidato pertenece al mismo clúster K-Means del historial
+        cluster_bonus = np.array([1.2 if pool_labels[idx] in viewed_clusters else 1.0 for idx in range(len(pool))])
+        similarity = similarity * cluster_bonus
+
         ranked = sorted(range(len(pool)), key=lambda index: float(similarity[index]), reverse=True)
 
-        # No sugerir copias de lo que ya viste ni variantes del mismo producto
+
         seen_titles = {title_key(row["title"]) for row in viewed_rows}
         ids: list[int] = []
         for index in ranked:
@@ -474,7 +484,7 @@ def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) ->
             if len(ids) >= limit:
                 break
 
-        return {"modo": "historial", "productos": _fetch_product_cards(cursor, ids)}
+        return {"modo": "historial-kmeans", "productos": _fetch_product_cards(cursor, ids)}
     except HTTPException:
         raise
     except Exception as exc:

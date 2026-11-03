@@ -55,3 +55,8 @@ backend/*.egg-info/
 
 # Local project artifacts
 frontend/public/data/
+
+# OWASP ZAP reports
+security/zap/reports/
+security/zap/.zap-data/
+security/zap/tools/

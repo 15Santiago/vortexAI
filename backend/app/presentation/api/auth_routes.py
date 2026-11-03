@@ -49,7 +49,13 @@ def registrar_cuenta(account: AccountRequest) -> dict[str, Any]:
         )
     _validate_password_strength(account.password)
     
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="No fue posible conectar con MySQL. Verifica backend/.env y que el servicio MySQL esté activo.",
+        ) from exc
     cursor = conn.cursor(dictionary=True)
     try:
         _ensure_registration_schema(cursor)
@@ -188,7 +194,13 @@ def iniciar_sesion(account: AccountRequest, request: Request, response: Response
     identifier = account.email.strip().lower()
     client_ip = request.client.host if request.client else "unknown"
     attempt_key = _login_attempt_key(identifier, client_ip)
-    conn = get_db_connection()
+    try:
+        conn = get_db_connection()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="No fue posible conectar con MySQL. Verifica backend/.env y que el servicio MySQL esté activo.",
+        ) from exc
     cursor = conn.cursor(dictionary=True)
     try:
         _ensure_session_table(cursor)

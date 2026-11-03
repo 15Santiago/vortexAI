@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vortex · asistente de voz de vortexAI</title>
+  <style>
+    :root {
+      --fondo: #0b1522;
+      --superficie: #101e33;
+      --borde: #1f3354;
+      --texto: #edf3fa;
+      --suave: #94a3b8;
+      --acento: #38bdf8;
+      --acento-2: #8bddd3;
+      --error: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--fondo);
+      color: var(--texto);
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      line-height: 1.5;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+    }
+    main { width: 100%; max-width: 520px; display: grid; gap: 24px; justify-items: center; text-align: center; }
+    h1 { margin: 0; font-size: clamp(2rem, 6vw, 2.75rem); font-weight: 650; letter-spacing: -0.02em; }
+    .intro { margin: 8px 0 0; color: var(--suave); max-width: 40ch; margin-inline: auto; }
+    .acceso { display: grid; gap: 6px; width: min(100%, 280px); text-align: left; }
+    .acceso label { font-size: 0.9rem; color: var(--suave); }
+    .acceso input {
+      width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--borde);
+      background: var(--superficie); color: var(--texto); font: inherit;
+    }
+    .acceso input::placeholder { color: #5b6b86; }
+    .orbe {
+      position: relative; width: 148px; height: 148px; border-radius: 50%; border: 0; cursor: pointer;
+      background: var(--acento); color: var(--fondo); display: grid; place-items: center;
+      transition: transform 0.15s ease, background 0.2s ease;
+    }
+    .orbe:hover:not(:disabled) { transform: scale(1.03); }
+    .orbe:disabled { cursor: progress; background: #2a4466; color: var(--suave); }
+    .orbe svg { width: 52px; height: 52px; }
+    .orbe.en-llamada { background: var(--acento-2); }
+    .orbe.habla { animation: onda 1.4s ease-out infinite; }
+    @keyframes onda {
+      0% { box-shadow: 0 0 0 0 rgba(139, 221, 211, 0.55); }
+      100% { box-shadow: 0 0 0 34px rgba(139, 221, 211, 0); }
+    }
+    :focus-visible { outline: 3px solid var(--texto); outline-offset: 4px; }
+    .estado { min-height: 1.5em; margin: 0; color: var(--texto); }
+    .estado.error { color: var(--error); }
+    .transcripcion {
+      width: 100%; max-height: 38vh; overflow-y: auto; text-align: left; display: grid; gap: 10px;
+      padding: 0; margin: 0; list-style: none;
+    }
+    .transcripcion:empty { display: none; }
+    .transcripcion li { background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 10px 14px; }
+    .transcripcion .quien { display: block; font-size: 0.8rem; color: var(--suave); margin-bottom: 2px; }
+    .transcripcion .agente { border-color: #285a6e; }
+    .pie { margin: 0; font-size: 0.85rem; color: var(--suave); max-width: 44ch; }
+    .detalles { width: 100%; text-align: left; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 10px 14px; }
+    .detalles summary { cursor: pointer; color: var(--suave); }
+    .detalles pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.8rem; margin: 10px 0; color: var(--texto); user-select: all; }
+    .detalles button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--borde); background: transparent; color: var(--texto); cursor: pointer; }
+    @media (prefers-reduced-motion: reduce) { .orbe, .orbe.habla { animation: none; transition: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Vortex</h1>
+      <p class="intro">Habla con el asistente de voz de vortexAI para encontrar productos de electrónica, ver ofertas o comparar opciones.</p>
+    </header>
+
+    <div class="acceso" id="acceso">
+      <label for="codigo">Código de acceso</label>
+      <input id="codigo" type="password" autocomplete="off" placeholder="Escríbelo y pulsa el botón">
+    </div>
+
+    <button class="orbe" id="orbe" type="button" aria-label="Hablar con Vortex">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="3" width="6" height="12" rx="3"></rect>
+        <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path>
+      </svg>
+    </button>
+
+    <p class="estado" id="estado" role="status" aria-live="polite">Pulsa el botón y habla con Vortex.</p>
+    <ul class="transcripcion" id="transcripcion" aria-live="polite"></ul>
+    <details class="detalles" id="detalles" hidden>
+      <summary>Detalles técnicos (cópialos y envíalos a soporte)</summary>
+      <pre id="registro"></pre>
+      <button type="button" id="copiar">Copiar detalles</button>
+    </details>
+    <p class="pie">Necesitas permitir el micrófono en el navegador. La conversación se corta sola a los pocos minutos.</p>
+  </main>
+
+  <script src="/static/retell-client.js"></script>
+  <script>
+    const VERSION_PAGINA = "gateway-2";
+    const orbe = document.getElementById("orbe");
+    const estado = document.getElementById("estado");
+    const acceso = document.getElementById("acceso");
+    const codigo = document.getElementById("codigo");
+    const lista = document.getElementById("transcripcion");
+    const detalles = document.getElementById("detalles");
+    const registro = document.getElementById("registro");
+    const lineas = [];
+    let enLlamada = false;
+
+    // ---------- registro técnico (sin datos secretos)
+    function limpiar(texto) {
+      return String(texto)
+        .replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, "[token]")
+        .replace(/(Bearer\s+)[\w.\-]+/gi, "$1[token]")
+        .replace(/("?(?:credential|access_token|accessToken|token)"?\s*[:=]\s*"?)[^"\s,}&]+/gi, "$1[oculto]");
+    }
+    function formatear(valor) {
+      if (valor && typeof valor.message === "string") return (valor.name || "Error") + ": " + valor.message;
+      if (valor !== null && typeof valor === "object") {
+        try { return JSON.stringify(valor); } catch (e) { return String(valor); }
+      }
+      return String(valor);
+    }
+    function anotar(texto) {
+      lineas.push("[" + new Date().toLocaleTimeString() + "] " + limpiar(texto));
+      registro.textContent = "Versión de la página: " + VERSION_PAGINA + "\n" + lineas.join("\n");
+    }
+    function mostrarDetalles() { detalles.hidden = false; detalles.open = true; }
+
+    const consolaError = console.error.bind(console);
+    console.error = (...argumentos) => { anotar("console.error → " + argumentos.map(formatear).join(" ")); consolaError(...argumentos); };
+    window.addEventListener("error", (e) => anotar("error de la página → " + (e.message || e.type)));
+    window.addEventListener("unhandledrejection", (e) => anotar("promesa rechazada → " + formatear(e.reason)));
+
+    document.getElementById("copiar").addEventListener("click", async (e) => {
+      try { await navigator.clipboard.writeText(registro.textContent); e.target.textContent = "Copiado"; }
+      catch (err) { e.target.textContent = "Selecciona el texto y cópialo con Ctrl+C"; }
+    });
+
+    async function diagnosticoDeRed() {
+      anotar("WebRTC disponible: " + (typeof RTCPeerConnection !== "undefined" ? "sí" : "NO"));
+      anotar("Contexto seguro (HTTPS o localhost): " + (window.isSecureContext ? "sí" : "NO"));
+      try { await fetch("https://api.retellai.com/", { mode: "no-cors" }); anotar("Se alcanza api.retellai.com: sí"); }
+      catch (err) { anotar("Se alcanza api.retellai.com: NO (" + formatear(err) + ")"); }
+    }
+
+    // ---------- interfaz
+    const cliente = new RetellWebClient();
+
+    function mostrar(texto, esError) {
+      estado.textContent = texto;
+      estado.classList.toggle("error", Boolean(esError));
+    }
+
+    function reposo(texto, esError) {
+      enLlamada = false;
+      orbe.disabled = false;
+      orbe.classList.remove("en-llamada", "habla");
+      orbe.setAttribute("aria-label", "Hablar con Vortex");
+      acceso.hidden = false;
+      mostrar(texto, esError);
+    }
+
+    function pintarTranscripcion(mensajes) {
+      lista.replaceChildren();
+      for (const m of (mensajes || []).slice(-8)) {
+        if (!m.content) continue;
+        const li = document.createElement("li");
+        const quien = document.createElement("span");
+        quien.className = "quien";
+        quien.textContent = m.role === "agent" ? "Vortex" : "Tú";
+        li.className = m.role === "agent" ? "agente" : "";
+        li.append(quien, m.content);
+        lista.append(li);
+      }
+      lista.scrollTop = lista.scrollHeight;
+    }
+
+    cliente.on("call_started", () => {
+      anotar("evento call_started");
+      enLlamada = true;
+      orbe.disabled = false;
+      orbe.classList.add("en-llamada");
+      orbe.setAttribute("aria-label", "Terminar la llamada");
+      acceso.hidden = true;
+      mostrar("En llamada. Habla con Vortex y pulsa el botón para terminar.");
+    });
+    cliente.on("call_ready", () => anotar("evento call_ready (el agente ya puede escucharte)"));
+    cliente.on("call_ended", () => { anotar("evento call_ended"); reposo("Llamada terminada. Puedes iniciar otra."); });
+    cliente.on("agent_start_talking", () => { orbe.classList.add("habla"); mostrar("Vortex está hablando…"); });
+    cliente.on("agent_stop_talking", () => { orbe.classList.remove("habla"); if (enLlamada) mostrar("Te escucho."); });
+    cliente.on("update", (u) => pintarTranscripcion(u.transcript));
+    cliente.on("error", async (e) => {
+      anotar("evento error del SDK → " + formatear(e));
+      cliente.stopCall();
+      reposo("No se pudo iniciar la llamada de voz. Abajo están los detalles técnicos: cópialos y envíalos.", true);
+      await diagnosticoDeRed();
+      mostrarDetalles();
+    });
+
+    async function comprobarMicrofono() {
+      try {
+        const flujo = await navigator.mediaDevices.getUserMedia({ audio: true });
+        flujo.getTracks().forEach((pista) => pista.stop());
+        anotar("Micrófono: permitido");
+        return null;
+      } catch (err) {
+        anotar("Micrófono: " + formatear(err));
+        if (err.name === "NotAllowedError") return "El navegador bloqueó el micrófono. Pulsa el candado junto a la dirección, permite el micrófono y recarga la página.";
+        if (err.name === "NotFoundError") return "No se encontró ningún micrófono conectado.";
+        return "No se pudo acceder al micrófono: " + (err.message || err.name);
+      }
+    }
+
+    orbe.addEventListener("click", async () => {
+      if (enLlamada) { cliente.stopCall(); return; }
+      const valor = codigo.value.trim();
+      if (!valor) { mostrar("Escribe el código de acceso.", true); codigo.focus(); return; }
+
+      orbe.disabled = true;
+      lista.replaceChildren();
+      mostrar("Conectando…");
+      const problemaMicrofono = await comprobarMicrofono();
+      if (problemaMicrofono) { reposo(problemaMicrofono, true); mostrarDetalles(); return; }
+      try {
+        const r = await fetch("/api/crear-llamada", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ codigo: valor }),
+        });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          throw new Error(typeof e.detail === "string" ? e.detail : "No se pudo iniciar la llamada (código " + r.status + ").");
+        }
+        const llamada = await r.json();
+        anotar("crear-llamada: correcto · transport=" + (llamada.transport || "(vacío)") +
+          " · servidores ICE=" + ((llamada.ice_servers || []).length) + " · call_id=" + (llamada.call_id ? "sí" : "NO"));
+        await cliente.startCall({
+          accessToken: llamada.access_token,
+          callId: llamada.call_id,
+          transport: llamada.transport,
+          iceServers: llamada.ice_servers,
+        });
+        anotar("startCall terminó · en llamada: " + (enLlamada ? "sí" : "no"));
+      } catch (err) {
+        anotar("fallo antes de conectar → " + formatear(err));
+        reposo(err.message || "No se pudo iniciar la llamada.", true);
+        mostrarDetalles();
+      }
+    });
+  </script>
+</body>
+</html>

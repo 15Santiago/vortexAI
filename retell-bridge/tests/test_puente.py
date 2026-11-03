@@ -1,0 +1,387 @@
+"""Pruebas del puente. Ejecutar:  pip install pytest  y luego  pytest -q"""
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from fastapi.testclient import TestClient
+from retell import Retell
+from retell.lib.webhook_auth import symmetric
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import catalogo  # noqa: E402
+import main  # noqa: E402
+from scripts.registrar_funciones import (  # noqa: E402
+    PROMPT_MARKER,
+    TOOL_SCHEMAS,
+    _agent_create_payload,
+    _llm_create_payload,
+    _prompt_with_screen_instructions,
+    _tool_payload,
+)
+
+CLAVE = "key_de_prueba"
+
+
+def _fila(i, titulo, categoria, precio, original, descuento, calificacion, resenas):
+    return {
+        "id": i, "product_title": titulo, "product_category": categoria, "discounted_price": precio,
+        "original_price": original, "discount_percentage": descuento, "product_rating": calificacion,
+        "total_reviews": resenas, "purchased_last_month": "1K+ bought in past month",
+        "buy_box_availability": "Add to cart", "delivery_date": "Mon, Nov 3",
+    }
+
+
+FILAS = [
+    _fila(1, "Apple AirPods Pro 2 Wireless Earbuds, Active Noise Cancellation, USB-C", "Phones", "162.24", "249.0", "35.0", "4.6", "35882"),
+    _fila(2, "Sony WH-1000XM5 Wireless Headphones, Noise Canceling", "Headphones", "298.0", "399.99", "25.5", "4.5", "9800"),
+    _fila(3, "Anker USB C Charger 65W, 3 Port Fast Charger", "Chargers & Cables", "35.99", "49.99", "28.0", "4.7", "15000"),
+    _fila(4, "Cheap Wired Earphones with Mic", "Headphones", "7.5", "9.0", "16.0", "3.9", "120"),
+    _fila(5, "Gaming Laptop 16 inch RTX Notebook", "Laptops", "1299.0", "1499.0", "13.0", "4.4", "800"),
+    _fila(6, "Acer Nitro V Gaming Laptop, 15.6 inch, RTX 4050", "Laptops", "799.0", "899.0", "11.0", "4.2", "627"),
+    _fila(7, "ASUS ROG Strix G16 Gaming Laptop, 240Hz", "Laptops", "1899.0", "1999.0", "5.0", "4.1", "544"),
+    _fila(8, "Logitech G203 Wired Gaming Mouse for PC Mac Laptop", "Gaming", "24.5", "35.0", "30.0", "4.6", "18261"),
+]
+
+
+class RetellFalso:
+    def __init__(self):
+        self._real = Retell(api_key=CLAVE)
+        servidor_ice = SimpleNamespace(model_dump=lambda **kw: {"urls": ["turn:turn.ejemplo.com:3478"], "username": "u", "credential": "c"})
+        self.call = SimpleNamespace(
+            create_web_call=lambda **kw: SimpleNamespace(
+                access_token="token_falso", call_id="call_1", transport="gateway", ice_servers=[servidor_ice]
+            )
+        )
+
+    def verify(self, cuerpo, clave, firma):
+        return self._real.verify(cuerpo, clave, firma)
+
+
+@pytest.fixture(autouse=True)
+def entorno(monkeypatch):
+    monkeypatch.setattr(catalogo, "_descargar", lambda: [i for i in (catalogo._normalizar(f) for f in FILAS) if i])
+    catalogo._estado.update({"items": [], "indice": {}, "cargado": 0.0, "actualizando": False})
+    monkeypatch.setattr(main, "RETELL_API_KEY", CLAVE)
+    monkeypatch.setattr(main, "SKIP_SIGNATURE", False)
+    monkeypatch.setattr(main, "ACCESS_CODE", "codigo-secreto")
+    monkeypatch.setattr(main, "_retell", RetellFalso())
+    main._intentos.clear()
+    main._llamadas.clear()
+    main._acciones_por_llamada.clear()
+    return TestClient(main.app)
+
+
+def _firmado(cliente, ruta, args, call_id=None):
+    llamada = {"call_id": call_id} if call_id else {}
+    cuerpo = json.dumps({"name": "x", "call": llamada, "args": args}, separators=(",", ":"), ensure_ascii=False)
+    firma = symmetric["sign"](cuerpo, CLAVE)
+    return cliente.post(ruta, content=cuerpo.encode(), headers={"x-retell-signature": firma, "content-type": "application/json"})
+
+
+def test_busqueda_en_espanol_traduce(entorno):
+    r = _firmado(entorno, "/retell/buscar-productos", {"consulta": "audífonos inalámbricos"}).json()
+    nombres = [x["nombre"] for x in r["resultados"]]
+    assert r["coincidencia"] == "exacta"
+    assert any("AirPods" in n for n in nombres) and any("Sony" in n for n in nombres)
+    assert all("Charger" not in n for n in nombres)
+
+
+def test_busqueda_encola_accion_para_catalogo_y_respeta_cursor(entorno):
+    llamada = "call-search-1"
+    respuesta = _firmado(
+        entorno,
+        "/retell/buscar-productos",
+        {"consulta": "airpods"},
+        call_id=llamada,
+    )
+    assert respuesta.status_code == 200
+    accion = entorno.get(f"/api/acciones/{llamada}").json()
+    assert accion["ultimo"] == 1
+    assert accion["acciones"] == [{
+        "id": 1,
+        "tipo": "mostrar_productos",
+        "ruta": "/catalogo",
+        "ids": [1],
+        "consulta": "airpods",
+    }]
+    siguiente = entorno.get(f"/api/acciones/{llamada}?desde=1").json()
+    assert siguiente == {"acciones": [], "ultimo": 1}
+    assert entorno.get("/api/acciones/call-unknown").status_code == 404
+
+
+def test_busqueda_sin_resultados_tambien_encola_catalogo_vacio(entorno):
+    respuesta = _firmado(
+        entorno,
+        "/retell/buscar-productos",
+        {"consulta": "lavadora"},
+        call_id="call-empty",
+    ).json()
+    assert respuesta["total_encontrados"] == 0
+    accion = entorno.get("/api/acciones/call-empty").json()["acciones"][0]
+    assert accion["tipo"] == "mostrar_productos" and accion["ids"] == []
+
+
+def test_filtro_de_precio_y_orden(entorno):
+    r = _firmado(entorno, "/retell/buscar-productos", {"consulta": "headphones earphones", "precio_max": 50, "orden": "precio_menor"}).json()
+    assert [x["id"] for x in r["resultados"]] == [4]
+
+
+def test_sin_resultados_da_mensaje(entorno):
+    r = _firmado(entorno, "/retell/buscar-productos", {"consulta": "lavadora", "precio_max": 5}).json()
+    assert r["total_encontrados"] == 0 and "mensaje" in r
+
+
+def test_respuesta_corta_y_sin_titulo_largo(entorno):
+    r = _firmado(entorno, "/retell/buscar-productos", {"consulta": "airpods"}).json()
+    assert r["resultados"][0]["nombre"] == "Apple AirPods Pro 2 Wireless Earbuds"
+    assert set(r["resultados"][0]) == {"id", "nombre", "precio_usd", "descuento_pct", "calificacion", "resenas"}
+
+
+def test_detalle_y_no_encontrado(entorno):
+    ok = _firmado(entorno, "/retell/detalle-producto", {"id": 3}).json()
+    assert ok["precio_original_usd"] == 49.99 and "Anker" in ok["caracteristicas"]
+    assert "error" in _firmado(entorno, "/retell/detalle-producto", {"id": 999}).json()
+
+
+def test_detalle_producto_encola_navegacion_solo_si_existe(entorno):
+    llamada = "call-detail"
+    _firmado(entorno, "/retell/detalle-producto", {"id": 3}, call_id=llamada)
+    acciones = entorno.get(f"/api/acciones/{llamada}").json()["acciones"]
+    assert acciones == [{
+        "id": 1,
+        "tipo": "abrir_producto",
+        "ruta": "/producto/3",
+        "producto_id": 3,
+    }]
+
+    _firmado(entorno, "/retell/detalle-producto", {"id": 999}, call_id=llamada)
+    assert entorno.get(f"/api/acciones/{llamada}").json()["ultimo"] == 1
+
+
+def test_mejores_ofertas_respeta_minimos(entorno):
+    r = _firmado(entorno, "/retell/mejores-ofertas", {}).json()
+    assert [x["id"] for x in r["resultados"]][0] == 1  # 35 % de descuento, el mayor con buenas reseñas
+
+
+def test_mejores_ofertas_encola_resultados(entorno):
+    _firmado(
+        entorno,
+        "/retell/mejores-ofertas",
+        {"consulta": "audífonos"},
+        call_id="call-deals",
+    )
+    accion = entorno.get("/api/acciones/call-deals").json()["acciones"][0]
+    assert accion["tipo"] == "mostrar_productos"
+    assert accion["ids"][0] == 1
+
+
+@pytest.mark.parametrize(
+    ("seccion", "ruta"),
+    [
+        ("inicio", "/"),
+        ("catalogo", "/catalogo"),
+        ("metricas", "/admin/dashboard"),
+        ("perfil", "/perfil"),
+    ],
+)
+def test_navegar_a_secciones(entorno, seccion, ruta):
+    respuesta = _firmado(entorno, "/retell/navegar", {"seccion": seccion})
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"accion": "navegar", "destino": seccion, "ruta": ruta}
+
+
+def test_navegar_a_producto_y_rechazar_argumento_invalido(entorno):
+    producto = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": 42}
+    ).json()
+    invalido = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": -1}
+    ).json()
+    decimal = _firmado(
+        entorno, "/retell/navegar", {"seccion": "producto", "producto_id": 42.5}
+    ).json()
+    assert producto["ruta"] == "/producto/42"
+    assert "error" in invalido
+    assert "error" in decimal
+    assert "error" in _firmado(entorno, "/retell/navegar", {"seccion": "desconocida"}).json()
+
+
+def test_navegar_encola_accion_de_pantalla(entorno):
+    llamada = "call-navigation"
+    respuesta = _firmado(
+        entorno,
+        "/retell/navegar",
+        {"seccion": "producto", "producto_id": 42},
+        call_id=llamada,
+    )
+    assert respuesta.json()["ruta"] == "/producto/42"
+    assert entorno.get(f"/api/acciones/{llamada}").json()["acciones"] == [{
+        "id": 1,
+        "tipo": "ir_a",
+        "ruta": "/producto/42",
+        "destino": "producto",
+        "producto_id": 42,
+    }]
+
+
+def test_navegar_acepta_destino_y_encola_perfil(entorno):
+    llamada = "call-profile"
+    respuesta = _firmado(
+        entorno,
+        "/retell/navegar",
+        {"destino": "perfil"},
+        call_id=llamada,
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {
+        "accion": "navegar",
+        "destino": "perfil",
+        "ruta": "/perfil",
+    }
+    assert entorno.get(f"/api/acciones/{llamada}").json()["acciones"] == [{
+        "id": 1,
+        "tipo": "ir_a",
+        "ruta": "/perfil",
+        "destino": "perfil",
+    }]
+
+
+def test_esquemas_de_registro_incluyen_endpoints_y_prompt_idempotente():
+    herramientas = [_tool_payload(schema, "https://bridge.example") for schema in TOOL_SCHEMAS]
+    assert [tool["name"] for tool in herramientas] == [
+        "buscar_productos",
+        "detalle_producto",
+        "mejores_ofertas",
+        "navegar",
+    ]
+    assert all(tool["method"] == "POST" and tool["speak_during_execution"] for tool in herramientas)
+    assert all(tool["args_at_root"] is False for tool in herramientas)
+    assert herramientas[0]["url"] == "https://bridge.example/retell/buscar-productos"
+    assert herramientas[3]["url"] == "https://bridge.example/retell/navegar"
+    prompt = _prompt_with_screen_instructions("Prompt existente.")
+    assert PROMPT_MARKER in prompt
+    assert "no llames end_call" in prompt
+    assert "mantén la llamada abierta" in prompt
+    assert _prompt_with_screen_instructions(prompt) == prompt
+    stale_prompt = prompt.replace(
+        "Después de cada herramienta, responde en voz alta con el resultado y sigue la conversación: no te quedes callado, no llames end_call y mantén la llamada abierta para escuchar la siguiente petición.",
+        "Después de cada herramienta, continúa la conversación.",
+    )
+    updated_prompt = _prompt_with_screen_instructions(stale_prompt)
+    assert "no te quedes callado, no llames end_call" in updated_prompt
+    assert "Después de cada herramienta, continúa la conversación." not in updated_prompt
+    assert _prompt_with_screen_instructions(updated_prompt) == updated_prompt
+    clone_payload = _llm_create_payload(
+        {
+            "llm_id": "published-llm",
+            "version": 4,
+            "is_published": True,
+            "model": "gpt-4.1",
+            "model_config": {"type": "cascading"},
+        },
+        herramientas,
+        updated_prompt,
+    )
+    assert clone_payload["model"] == "gpt-4.1"
+    assert clone_payload["model_config"] == {"type": "cascading"}
+    assert clone_payload["general_tools"] == herramientas
+    assert clone_payload["general_prompt"] == updated_prompt
+    assert "llm_id" not in clone_payload and "version" not in clone_payload
+    agent_payload = _agent_create_payload(
+        {
+            "agent_id": "published-agent",
+            "agent_name": "Vortex",
+            "version": 3,
+            "is_published": True,
+            "voice_id": "voice",
+            "assigned_tags": ["prod"],
+        },
+        {"type": "retell-llm", "llm_id": "replacement-llm", "version": 0},
+    )
+    assert agent_payload["agent_name"] == "Vortex"
+    assert agent_payload["voice_id"] == "voice"
+    assert agent_payload["response_engine"]["llm_id"] == "replacement-llm"
+    assert "agent_id" not in agent_payload and "assigned_tags" not in agent_payload
+
+
+def test_firma_ausente_o_falsa_se_rechaza(entorno):
+    assert entorno.post("/retell/buscar-productos", json={"args": {"consulta": "x"}}).status_code == 401
+    r = entorno.post("/retell/buscar-productos", json={"args": {}}, headers={"x-retell-signature": "v=1,d=" + "0" * 64})
+    assert r.status_code == 401
+
+
+def test_catalogo_caido_devuelve_error_legible(entorno, monkeypatch):
+    def falla():
+        raise catalogo.CatalogoNoDisponible("sin conexión")
+    monkeypatch.setattr(catalogo, "_descargar", falla)
+    r = _firmado(entorno, "/retell/buscar-productos", {"consulta": "laptop"})
+    assert r.status_code == 200 and "error" in r.json()
+    assert entorno.get("/health").json()["catalogo"] == "no_disponible"
+
+
+def test_crear_llamada_codigo(entorno):
+    assert entorno.post("/api/crear-llamada", json={"codigo": "mal"}).status_code == 401
+    ok = entorno.post("/api/crear-llamada", json={"codigo": "codigo-secreto"})
+    cuerpo = ok.json()
+    assert ok.status_code == 200
+    assert cuerpo["access_token"] == "token_falso" and cuerpo["call_id"] == "call_1" and cuerpo["transport"] == "gateway"
+    assert cuerpo["ice_servers"] == [{"urls": ["turn:turn.ejemplo.com:3478"], "username": "u", "credential": "c"}]
+    assert entorno.get("/api/acciones/call_1").json() == {"acciones": [], "ultimo": 0}
+
+
+def test_crear_llamada_limita_intentos(entorno):
+    for _ in range(main.MAX_ATTEMPTS_PER_10_MIN):
+        entorno.post("/api/crear-llamada", json={"codigo": "mal"})
+    assert entorno.post("/api/crear-llamada", json={"codigo": "codigo-secreto"}).status_code == 429
+
+
+def test_tope_global_de_llamadas(entorno, monkeypatch):
+    monkeypatch.setattr(main, "MAX_CALLS_PER_HOUR", 2)
+    codigos = [entorno.post("/api/crear-llamada", json={"codigo": "codigo-secreto"}).status_code for _ in range(3)]
+    assert codigos == [200, 200, 429]
+
+
+def test_webhook_firmado(entorno):
+    cuerpo = json.dumps({"event": "call_ended", "call": {"call_id": "c1"}}, separators=(",", ":"))
+    firma = symmetric["sign"](cuerpo, CLAVE)
+    r = entorno.post("/retell/webhook", content=cuerpo.encode(), headers={"x-retell-signature": firma})
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert entorno.post("/retell/webhook", content=cuerpo.encode()).status_code == 401
+
+
+def test_pagina_y_cabecera_de_microfono(entorno):
+    r = entorno.get("/asistente")
+    assert r.status_code == 200 and "Vortex" in r.text
+    assert r.headers["permissions-policy"] == "microphone=(self)"
+    assert entorno.get("/static/retell-client.js").status_code == 200
+
+
+def test_accesorios_no_tapan_a_los_productos(entorno):
+    r = _firmado(entorno, "/retell/buscar-productos", {"consulta": "gaming laptop", "orden": "mas_resenas"}).json()
+    ids = [x["id"] for x in r["resultados"]]
+    assert 8 not in ids and set(ids) == {5, 6, 7}  # el mouse solo menciona "laptop" en la descripción
+
+
+def test_nombre_corto_sin_cortes_feos():
+    assert catalogo.nombre_corto("DJI Mic 2 (2 TX + 1 RX + Charging Case), Wireless Lavalier Microphone") == "DJI Mic 2"
+    assert catalogo.nombre_corto("UGREEN Vertical Laptop Stand Holder for Desk Compatible with Macbook") == "UGREEN Vertical Laptop Stand Holder for Desk"
+
+
+def test_ofertas_por_tipo_de_producto(entorno):
+    r = _firmado(entorno, "/retell/mejores-ofertas", {"consulta": "audífonos"}).json()
+    assert r["resultados"] and all(x["id"] in {1, 2, 4} for x in r["resultados"])
+    assert r["resultados"][0]["id"] == 1  # el de mayor descuento con reseñas suficientes
+
+
+def test_llamadas_correctas_no_consumen_el_limite_por_ip(entorno, monkeypatch):
+    monkeypatch.setattr(main, "MAX_CALLS_PER_HOUR", 100)
+    for _ in range(main.MAX_ATTEMPTS_PER_10_MIN + 3):
+        assert entorno.post("/api/crear-llamada", json={"codigo": "codigo-secreto"}).status_code == 200
+
+
+def test_la_pagina_pasa_al_sdk_todos_los_datos_de_la_llamada(entorno):
+    html = entorno.get("/asistente").text
+    for campo in ("accessToken: llamada.access_token", "callId: llamada.call_id", "transport: llamada.transport", "iceServers: llamada.ice_servers"):
+        assert campo in html

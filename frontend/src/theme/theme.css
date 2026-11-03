@@ -501,3 +501,95 @@ html[data-theme] .home-page a:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
+
+html[data-theme] .assistant-widget__toggle,
+html[data-theme] .assistant-widget__microphone {
+  border-color: var(--action-bg);
+  background: var(--action-bg);
+  color: #fff;
+}
+
+html[data-theme] .assistant-widget__toggle:hover {
+  background: var(--action-hover);
+}
+
+html[data-theme] .assistant-widget__panel {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+html[data-theme] .assistant-widget__header {
+  border-color: var(--border);
+}
+
+html[data-theme] .assistant-widget__title,
+html[data-theme] .assistant-widget__close,
+html[data-theme] .assistant-widget__status,
+html[data-theme] .assistant-widget__results-title,
+html[data-theme] .assistant-widget__result-link,
+html[data-theme] .assistant-widget__details pre {
+  color: var(--text-primary);
+}
+
+html[data-theme] .assistant-widget__access-heading,
+html[data-theme] .assistant-widget__details {
+  color: var(--text-secondary);
+}
+
+html[data-theme] .assistant-widget__copy,
+html[data-theme] .assistant-widget__speaker,
+html[data-theme] .assistant-widget__result-meta,
+html[data-theme] .assistant-widget__copy-status {
+  color: var(--accent-text);
+}
+
+html[data-theme] .assistant-widget__input,
+html[data-theme] .assistant-widget__message,
+html[data-theme] .assistant-widget__result,
+html[data-theme] .assistant-widget__details pre {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+html[data-theme] .assistant-widget__input {
+  color: var(--text-primary);
+}
+
+html[data-theme] .assistant-widget__catalog-link {
+  border-color: var(--border);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+html[data-theme] .assistant-widget__catalog-link:hover {
+  border-color: var(--accent);
+  background: var(--surface-muted);
+}
+
+html[data-theme] .assistant-widget__toggle:focus-visible,
+html[data-theme] .assistant-widget__close:focus-visible,
+html[data-theme] .assistant-widget__copy:focus-visible,
+html[data-theme] .assistant-widget__microphone:focus-visible,
+html[data-theme] .assistant-widget__end-call:focus-visible,
+html[data-theme] .assistant-widget__result-link:focus-visible,
+html[data-theme] .assistant-widget__catalog-link:focus-visible,
+html[data-theme] .assistant-widget__input:focus-visible,
+html[data-theme] .assistant-widget__details summary:focus-visible {
+  outline-color: var(--accent);
+}
+
+html[data-theme] .catalog-page__assistant-search {
+  border-color: var(--border);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+html[data-theme] .catalog-page__assistant-search button {
+  border-color: var(--border);
+  color: var(--accent-text);
+}
+
+html[data-theme] .catalog-page__assistant-search button:hover {
+  background: var(--surface);
+}

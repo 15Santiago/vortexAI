@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { Header } from '../organisms/Header';
 import { ThemeToggle } from '../atoms/ThemeToggle';
+import AssistantWidget from '../organisms/AssistantWidget';
 import './MainLayout.css';
 
 export function MainLayout() {
@@ -11,6 +12,7 @@ export function MainLayout() {
         <Outlet />
       </main>
       <ThemeToggle />
+      <AssistantWidget />
     </div>
   );
 }

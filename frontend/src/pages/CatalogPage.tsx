@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { SearchInput } from '../components/atoms/SearchInput';
 import { ProductCard } from '../components/atoms/ProductCard';
 import { FilterSidebar } from '../components/molecules/FilterSidebar';
@@ -8,6 +9,28 @@ import type { Product } from '../types/product';
 import './CatalogPage.css';
 
 const FILTERS_STORAGE_KEY = 'vortexai.catalogo.filtros';
+
+type AssistantCatalogSelection = {
+  productIds: string[];
+  query: string;
+};
+
+function assistantSelectionFromSearch(search: string): AssistantCatalogSelection | null {
+  const params = new URLSearchParams(search);
+  if (!params.has('ids')) return null;
+
+  const productIds = [...new Set(
+    (params.get('ids') ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => /^\d+$/.test(id) && Number(id) > 0)
+      .map((id) => String(Number(id))),
+  )];
+  return {
+    productIds,
+    query: params.get('consulta') ?? '',
+  };
+}
 
 function readSavedFilters(): { category: string; search: string } {
   try {
@@ -43,6 +66,12 @@ function looksLikeBatteryProduct(title: string) {
 }
 
 export function CatalogPage() {
+  const location = useLocation();
+  const [, setSearchParams] = useSearchParams();
+  const assistantSelection = useMemo(
+    () => assistantSelectionFromSearch(location.search),
+    [location.search],
+  );
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => readSavedFilters().search);
   const [selectedCategory, setSelectedCategory] = useState(() => readSavedFilters().category);
@@ -110,11 +139,30 @@ export function CatalogPage() {
   }, [products]);
 
   // Categoría que realmente se aplica: si la guardada ya no existe en los datos, se usa "Todas"
-  const activeCategory =
-    loading || categories.includes(selectedCategory) ? selectedCategory : 'all';
+  const activeCategory = assistantSelection
+    ? 'all'
+    : loading || categories.includes(selectedCategory)
+      ? selectedCategory
+      : 'all';
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
+    const assistantProductIds = assistantSelection
+      ? new Set(assistantSelection.productIds)
+      : null;
+
+    if (assistantSelection) {
+      const positions = new Map(
+        assistantSelection.productIds.map((id, index) => [id, index]),
+      );
+      return products
+        .filter((product) => assistantProductIds?.has(String(Number(product.id))) ?? false)
+        .sort(
+          (left, right) =>
+            (positions.get(String(Number(left.id))) ?? Number.MAX_SAFE_INTEGER) -
+            (positions.get(String(Number(right.id))) ?? Number.MAX_SAFE_INTEGER),
+        );
+    }
 
     return products.filter((product) => {
       const categoryMatches =
@@ -132,13 +180,52 @@ export function CatalogPage() {
 
       return categoryMatches && !isBatteryHiddenFromPhones && matchesSearch;
     });
-  }, [products, search, activeCategory]);
+  }, [products, search, activeCategory, assistantSelection]);
+
+  function handleSearchChange(value: string) {
+    if (assistantSelection) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete('ids');
+        next.delete('consulta');
+        return next;
+      }, { replace: true });
+    }
+    setSearch(value);
+  }
+
+  function showFullCatalog() {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('ids');
+      next.delete('consulta');
+      return next;
+    }, { replace: true });
+    setSearch('');
+    setSelectedCategory('all');
+  }
 
   return (
     <div className="catalog-page">
       <div className="catalog-page__toolbar">
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar productos..." />
+        <SearchInput
+          value={assistantSelection ? '' : search}
+          onChange={handleSearchChange}
+          placeholder="Buscar productos..."
+        />
       </div>
+
+      {assistantSelection ? (
+        <div className="catalog-page__assistant-search">
+          <span>
+            <strong>Resultados del asistente</strong>
+            {assistantSelection.query ? ` para “${assistantSelection.query}”` : ''}
+          </span>
+          <button type="button" onClick={showFullCatalog}>
+            Ver catálogo completo
+          </button>
+        </div>
+      ) : null}
 
       {suggestions.length > 0 ? (
         <section
@@ -163,11 +250,13 @@ export function CatalogPage() {
       ) : null}
 
       <div className="catalog-page__body">
-        <FilterSidebar
-          categories={categories}
-          selectedCategory={activeCategory}
-          onSelectCategory={setSelectedCategory}
-        />
+        {assistantSelection ? null : (
+          <FilterSidebar
+            categories={categories}
+            selectedCategory={activeCategory}
+            onSelectCategory={setSelectedCategory}
+          />
+        )}
 
         <CatalogResults products={filteredProducts} loading={loading} />
       </div>

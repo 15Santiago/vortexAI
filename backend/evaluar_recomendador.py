@@ -1,10 +1,8 @@
-"""Evaluación offline del recomendador con TF-IDF + K-Means Clustering.
-No modifica la app ni la base de datos: solo lee.
-"""
+
 import sys
 import io
 
-# Forzar codificación para evitar errores en la terminal de Windows
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import random

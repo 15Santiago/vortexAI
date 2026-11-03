@@ -10,7 +10,6 @@ from importar_catalogo import import_products_from_csv
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Máximo de productos que se muestran por categoría (15 categorías x 600 = ~9.000)
 LIMITE_POR_CATEGORIA = 600
 
 
@@ -263,6 +262,7 @@ def _ensure_history_table(cursor) -> None:
             viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_views_user
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+            UNIQUE KEY uk_user_product (user_id, product_id),
             INDEX idx_views_user (user_id, viewed_at)
         ) ENGINE = InnoDB
         """
@@ -342,23 +342,16 @@ def registrar_vista(
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="No se encontró el producto.")
 
-
+        # Inserción segura ante múltiples peticiones concurrentes del navegador
         cursor.execute(
             """
-            SELECT 1 FROM user_product_views
-            WHERE user_id = %s AND product_id = %s
-              AND viewed_at > (NOW() - INTERVAL 30 SECOND)
-            LIMIT 1
+            INSERT INTO user_product_views (user_id, product_id, viewed_at)
+            VALUES (%s, %s, NOW())
+            ON DUPLICATE KEY UPDATE viewed_at = NOW()
             """,
             (user["id"], product_id),
         )
-        if cursor.fetchone():
-            return {"ok": True}
-
-        cursor.execute(
-            "INSERT INTO user_product_views (user_id, product_id) VALUES (%s, %s)",
-            (user["id"], product_id),
-        )
+        
         conn.commit()
         return {"ok": True}
     except HTTPException:
@@ -435,7 +428,7 @@ def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) ->
             ids = _most_reviewed_ids(cursor, limit, set(viewed_ids))
             return {"modo": "populares", "productos": _fetch_product_cards(cursor, ids)}
 
-
+      
         import numpy as np
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.metrics.pairwise import linear_kernel

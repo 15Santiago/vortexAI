@@ -576,6 +576,7 @@ function AuthenticatedAssistantWidget() {
     <div className="assistant-widget">
       {isOpen ? (
         <section
+          id="assistant-widget-panel"
           className="assistant-widget__panel"
           role="dialog"
           aria-modal="false"
@@ -714,6 +715,7 @@ function AuthenticatedAssistantWidget() {
       <button
         className="assistant-widget__toggle"
         type="button"
+        aria-controls="assistant-widget-panel"
         aria-label={isOpen ? 'Cerrar asistente de voz' : 'Abrir asistente de voz'}
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}

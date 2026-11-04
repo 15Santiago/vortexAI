@@ -9,8 +9,8 @@
 
 .assistant-widget__toggle {
   position: fixed;
-  right: calc(max(1rem, env(safe-area-inset-right)) + 4.5rem);
-  bottom: max(1rem, env(safe-area-inset-bottom));
+  right: max(1.25rem, env(safe-area-inset-right));
+  bottom: calc(max(1.25rem, env(safe-area-inset-bottom)) + 2.875rem + 0.75rem);
   z-index: 50;
   display: grid;
   width: 3.75rem;
@@ -41,12 +41,13 @@
 
 .assistant-widget__panel {
   position: fixed;
-  right: max(1rem, env(safe-area-inset-right));
-  bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 4.5rem);
+  right: max(1.25rem, env(safe-area-inset-right));
+  bottom: calc(max(1.25rem, env(safe-area-inset-bottom)) + 2.875rem + 0.75rem + 3.75rem + 0.75rem);
   z-index: 50;
   display: flex;
   width: min(90vw, 320px);
-  max-height: min(68vh, 560px);
+  max-height: min(68vh, calc(100vh - 11rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  max-height: min(68dvh, calc(100dvh - 11rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #1f3354;
@@ -76,8 +77,8 @@
 
 .assistant-widget__close {
   display: grid;
-  width: 2rem;
-  height: 2rem;
+  width: 2.75rem;
+  min-height: 2.75rem;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid transparent;
@@ -114,6 +115,7 @@
 }
 
 .assistant-widget__copy {
+  min-height: 2.75rem;
   padding: 0.3rem 0.6rem;
   border: 1px solid #1f3354;
   border-radius: 0.5rem;
@@ -130,7 +132,7 @@
 
 .assistant-widget__input {
   width: 100%;
-  min-height: 2.6rem;
+  min-height: 2.75rem;
   padding: 0.55rem 0.7rem;
   border: 1px solid #1f3354;
   border-radius: 0.6rem;
@@ -198,6 +200,7 @@
 }
 
 .assistant-widget__end-call {
+  min-height: 2.75rem;
   padding: 0.45rem 0.8rem;
   border: 1px solid #70454f;
   border-radius: 0.55rem;
@@ -286,6 +289,9 @@
 
 .assistant-widget__catalog-link {
   width: 100%;
+  min-height: 2.75rem;
+  display: grid;
+  place-items: center;
   padding: 0.6rem 0.8rem;
   border: 1px solid #1f3354;
   border-radius: 0.65rem;
@@ -309,6 +315,9 @@
 }
 
 .assistant-widget__details summary {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
   cursor: pointer;
 }
 
@@ -349,17 +358,42 @@
 
 @media (max-width: 480px) {
   .assistant-widget__panel {
-    bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 3.75rem);
+    bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 2.7rem + 0.75rem + 3.25rem + 0.75rem);
     right: max(0.75rem, env(safe-area-inset-right));
     width: min(88vw, 320px);
-    max-height: min(60dvh, 440px);
+    max-height: min(60vh, calc(100vh - 10rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+    max-height: min(60dvh, calc(100dvh - 10rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
   }
 
   .assistant-widget__toggle {
     width: 3.25rem;
     height: 3.25rem;
-    right: calc(max(0.75rem, env(safe-area-inset-right)) + 4rem);
-    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 2.7rem + 0.75rem);
+  }
+}
+
+@media (forced-colors: active) {
+  .assistant-widget__toggle,
+  .assistant-widget__close,
+  .assistant-widget__copy,
+  .assistant-widget__microphone,
+  .assistant-widget__end-call,
+  .assistant-widget__catalog-link,
+  .assistant-widget__input {
+    border: 1px solid ButtonText;
+  }
+
+  .assistant-widget__toggle:focus-visible,
+  .assistant-widget__close:focus-visible,
+  .assistant-widget__copy:focus-visible,
+  .assistant-widget__microphone:focus-visible,
+  .assistant-widget__end-call:focus-visible,
+  .assistant-widget__result-link:focus-visible,
+  .assistant-widget__catalog-link:focus-visible,
+  .assistant-widget__input:focus-visible,
+  .assistant-widget__details summary:focus-visible {
+    outline-color: Highlight;
   }
 }
 

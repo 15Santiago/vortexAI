@@ -4,7 +4,8 @@
   right: max(1.25rem, env(safe-area-inset-right));
   bottom: max(1.25rem, env(safe-area-inset-bottom));
   display: inline-flex;
-  min-height: 2.85rem;
+  max-width: calc(100vw - 2.5rem - env(safe-area-inset-left) - env(safe-area-inset-right));
+  min-height: 2.875rem;
   align-items: center;
   gap: 0.6rem;
   padding: 0.65rem 0.9rem;
@@ -24,8 +25,8 @@
 }
 
 .theme-toggle:focus-visible {
-  outline: 3px solid #e87524;
-  outline-offset: 3px;
+  outline: 3px solid var(--accent, #e87524);
+  outline-offset: 4px;
 }
 
 .theme-toggle svg {
@@ -51,5 +52,21 @@ html[data-theme='dark'] .theme-toggle {
     bottom: max(0.75rem, env(safe-area-inset-bottom));
     min-height: 2.7rem;
     padding: 0.6rem 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .theme-toggle {
+    border: 1px solid ButtonText;
+  }
+
+  .theme-toggle:focus-visible {
+    outline-color: Highlight;
   }
 }

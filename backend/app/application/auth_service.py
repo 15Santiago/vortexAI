@@ -47,6 +47,18 @@ class AccountRequest(BaseModel):
         return value
 
 
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=1, max_length=254)
+    password: str = Field(min_length=1, max_length=72)
+
+    @field_validator("password")
+    @classmethod
+    def validate_bcrypt_password_length(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede superar 72 bytes UTF-8.")
+        return value
+
+
 class ProfileUpdateRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str | None = Field(default=None, min_length=12, max_length=72)

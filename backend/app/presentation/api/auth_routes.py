@@ -10,6 +10,7 @@ from app.application.auth_service import (
     AUTH_COOKIE_NAME,
     AUTH_IDLE_MINUTES,
     AccountRequest,
+    LoginRequest,
     NAME_PATTERN,
     ProfileUpdateRequest,
     RegistrationVerificationRequest,
@@ -191,7 +192,7 @@ def verificar_registro(
 
 
 @router.post("/api/auth/login")
-def iniciar_sesion(account: AccountRequest, request: Request, response: Response) -> dict[str, Any]:
+def iniciar_sesion(account: LoginRequest, request: Request, response: Response) -> dict[str, Any]:
     identifier = account.email.strip().lower()
     client_ip = request.client.host if request.client else "unknown"
     attempt_key = _login_attempt_key(identifier, client_ip)

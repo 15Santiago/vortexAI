@@ -12,7 +12,6 @@ from app.infrastructure.database import get_db_connection
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Máximo de productos que se muestran por categoría (15 categorías x 600 = ~9.000)
 LIMITE_POR_CATEGORIA = 600
 
 
@@ -258,6 +257,7 @@ def _ensure_history_table(cursor) -> None:
             viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_views_user
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+            UNIQUE KEY uk_user_product (user_id, product_id),
             INDEX idx_views_user (user_id, viewed_at)
         ) ENGINE = InnoDB
         """
@@ -269,7 +269,8 @@ def _normalize_title(value: str | None) -> str:
     return " ".join((value or "").lower().split())
 
 
-def _fetch_product_cards(cursor, product_ids: list[int]) -> list[dict[str, Any]]:
+def _fetch_product_cards(cursor, product_ids: list[int], reasons: dict[int, str] = None) -> list[dict[str, Any]]:
+    reasons = reasons or {}
     cards: list[dict[str, Any]] = []
     for product_id in product_ids:
         cursor.execute(
@@ -293,6 +294,7 @@ def _fetch_product_cards(cursor, product_ids: list[int]) -> list[dict[str, Any]]
         )
         row = cursor.fetchone()
         if row:
+            row["razon"] = reasons.get(product_id, "Popular en el catálogo")
             cards.append(row)
     return cards
 
@@ -305,7 +307,7 @@ def _most_reviewed_ids(cursor, limit: int, exclude: set[int]) -> list[int]:
         JOIN products p ON p.id = o.product_id
         WHERE o.total_reviews IS NOT NULL
         GROUP BY o.product_id, p.title
-        ORDER BY MAX(o.total_reviews) DESC
+        ORDER BY MAX(CAST(o.total_reviews AS UNSIGNED)) DESC
         LIMIT %s
         """,
         (limit * 5 + len(exclude),),
@@ -337,23 +339,16 @@ def registrar_vista(
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="No se encontró el producto.")
 
-        # Evita guardar la misma visita dos veces seguidas (React ejecuta efectos dos veces en desarrollo)
+
         cursor.execute(
             """
-            SELECT 1 FROM user_product_views
-            WHERE user_id = %s AND product_id = %s
-              AND viewed_at > (NOW() - INTERVAL 30 SECOND)
-            LIMIT 1
+            INSERT INTO user_product_views (user_id, product_id, viewed_at)
+            VALUES (%s, %s, NOW())
+            ON DUPLICATE KEY UPDATE viewed_at = NOW()
             """,
             (user["id"], product_id),
         )
-        if cursor.fetchone():
-            return {"ok": True}
 
-        cursor.execute(
-            "INSERT INTO user_product_views (user_id, product_id) VALUES (%s, %s)",
-            (user["id"], product_id),
-        )
         conn.commit()
         return {"ok": True}
     except HTTPException:
@@ -370,7 +365,7 @@ def registrar_vista(
 @router.get("/api/recomendaciones")
 def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     limit = 8
-    recent_limit = 6  # solo cuentan las últimas visitas distintas
+    recent_limit = 6
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -386,9 +381,9 @@ def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) ->
             """,
             (user["id"], recent_limit),
         )
-        viewed_ids = [int(row["product_id"]) for row in cursor.fetchall()]  # de más reciente a más antigua
+        viewed_ids = [int(row["product_id"]) for row in cursor.fetchall()]
 
-        # Usuario sin historial: se muestran los productos con más reseñas
+
         if not viewed_ids:
             ids = _most_reviewed_ids(cursor, limit, set())
             return {"modo": "populares", "productos": _fetch_product_cards(cursor, ids)}
@@ -430,44 +425,68 @@ def obtener_recomendaciones(user: dict[str, Any] = Depends(get_current_user)) ->
             ids = _most_reviewed_ids(cursor, limit, set(viewed_ids))
             return {"modo": "populares", "productos": _fetch_product_cards(cursor, ids)}
 
-        # Modelo de recomendación por contenido: TF-IDF + similitud coseno
+
         import numpy as np
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.metrics.pairwise import linear_kernel
+        from sklearn.cluster import MiniBatchKMeans
 
         def as_text(row: dict[str, Any]) -> str:
             return f"{row['title'] or ''} {row['category'] or ''}"
 
         def title_key(value: str | None) -> str:
-            # Primeras palabras del título: agrupa variantes casi idénticas del mismo producto
+
             return " ".join(_normalize_title(value).split()[:6])
 
+        all_rows = viewed_rows + pool
         vectorizer = TfidfVectorizer(stop_words="english", max_features=5000)
-        matrix = vectorizer.fit_transform(
-            [as_text(row) for row in viewed_rows] + [as_text(row) for row in pool]
-        )
+        matrix = vectorizer.fit_transform([as_text(row) for row in all_rows])
+
         viewed_matrix = matrix[: len(viewed_rows)]
         pool_matrix = matrix[len(viewed_rows):]
 
-        # Las visitas más recientes pesan más (cada visita anterior pesa 85% de la siguiente)
+
+        kmeans = MiniBatchKMeans(n_clusters=min(50, len(all_rows)), random_state=42, batch_size=1024, n_init='auto')
+        labels = kmeans.fit_predict(matrix)
+
+        viewed_clusters = set(labels[: len(viewed_rows)])
+        pool_labels = labels[len(viewed_rows):]
+
+
         weights = np.array([0.85 ** position for position in range(len(viewed_rows))])
         similarity = (linear_kernel(viewed_matrix, pool_matrix) * weights[:, None]).max(axis=0)
 
+
+        cluster_bonus = np.array([1.2 if pool_labels[idx] in viewed_clusters else 1.0 for idx in range(len(pool))])
+        similarity = similarity * cluster_bonus
+
+
         ranked = sorted(range(len(pool)), key=lambda index: float(similarity[index]), reverse=True)
 
-        # No sugerir copias de lo que ya viste ni variantes del mismo producto
+
         seen_titles = {title_key(row["title"]) for row in viewed_rows}
         ids: list[int] = []
+        reasons: dict[int, str] = {}
+
         for index in ranked:
             key = title_key(pool[index]["title"])
             if key in seen_titles:
                 continue
             seen_titles.add(key)
-            ids.append(int(pool[index]["id"]))
+
+            prod_id = int(pool[index]["id"])
+            ids.append(prod_id)
+
+            sims_to_history = linear_kernel(pool_matrix[index:index+1], viewed_matrix).flatten()
+            best_hist_pos = int(sims_to_history.argmax())
+            ref_title = viewed_rows[best_hist_pos]["title"]
+            short_ref = " ".join(ref_title.split()[:4])
+            reasons[prod_id] = f"Porque viste {short_ref}..."
+
             if len(ids) >= limit:
                 break
 
-        return {"modo": "historial", "productos": _fetch_product_cards(cursor, ids)}
+        return {"modo": "historial-kmeans", "productos": _fetch_product_cards(cursor, ids, reasons)}
     except HTTPException:
         raise
     except Exception as exc:

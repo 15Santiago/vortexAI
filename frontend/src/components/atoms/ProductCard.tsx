@@ -19,7 +19,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <div className="product-card__image-wrap">
           <img
             src={product.product_image_url}
-            alt=""
+            alt={product.product_title}
             className="product-card__image"
           />
         </div>
@@ -27,6 +27,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <div className="product-card__content">
           <span className="product-card__category">{product.product_category}</span>
           <h3>{product.product_title}</h3>
+          {product.razon ? <p className="product-card__reason">{product.razon}</p> : null}
 
           <div className="product-card__meta">
             <span className="product-card__rating">★ {product.product_rating ?? 'N/A'}</span>
@@ -43,4 +44,4 @@ export function ProductCard({ product }: ProductCardProps) {
       </article>
     </Link>
   );
-}
+};

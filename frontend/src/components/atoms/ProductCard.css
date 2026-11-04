@@ -70,6 +70,13 @@
   overflow: hidden;
 }
 
+.product-card__reason {
+  margin: 0;
+  color: var(--accent-text, #99410d);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 .product-card__meta {
   display: flex;
   align-items: center;

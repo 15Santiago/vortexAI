@@ -18,4 +18,5 @@ export type Product = {
   data_collected_at: string | null;
   product_category: string;
   discount_percentage: number | null;
+  razon?: string; 
 };
